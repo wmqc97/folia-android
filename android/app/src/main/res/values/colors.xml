@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- styles.xml 的 AppTheme 引用了这三个颜色，上游模板漏发此文件，缺失会导致 aapt 资源链接失败。 -->
+    <color name="colorPrimary">#09090B</color>
+    <color name="colorPrimaryDark">#000000</color>
+    <color name="colorAccent">#8B5CF6</color>
+</resources>

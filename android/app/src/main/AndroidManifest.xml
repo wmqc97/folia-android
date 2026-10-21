@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:usesCleartextTraffic="true"
+        android:networkSecurityConfig="@xml/network_security_config"
+        android:theme="@style/AppTheme">
+
+        <!-- 背屏准入凭证：没有这条，MIUI/HyperOS 会拒绝把本应用的界面投到背屏。 -->
+        <meta-data
+            android:name="miui.rear.policy"
+            android:value="1" />
+
+        <!--
+          主界面。不出现在最近任务里是为了「后台播放不中断」：划掉任务会销毁 WebView
+          （音频在 WebView 里放）导致静音。后台播放现在由 KeepAliveService / FoliaPlaybackService
+          这两个前台服务兜底，任务重新可见也不会把播放带停。
+          返回键由 MainActivity 自己接管，退回后台而不结束 Activity。
+        -->
+        <activity
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation|density"
+            android:name=".MainActivity"
+            android:label="@string/title_activity_main"
+            android:theme="@style/AppTheme.NoActionBarLaunch"
+            android:launchMode="singleTask"
+            android:screenOrientation="fullSensor"
+            android:excludeFromRecents="false"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!--
+          背屏歌词页：被 RearProjectionController 投到 display 1。
+          独立 taskAffinity + singleInstance，避免与主界面共用任务栈被一起拉到背屏。
+        -->
+        <activity
+            android:name=".rear.RearLyricsActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:launchMode="singleInstance"
+            android:taskAffinity="top.izuna.foliamajor.rear.lyrics"
+            android:theme="@style/AppTheme.RearLyrics"
+            android:configChanges="orientation|screenSize|keyboardHidden|screenLayout|uiMode|smallestScreenSize|density"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
+            android:hardwareAccelerated="true"
+            android:enableOnBackInvokedCallback="false">
+            <meta-data
+                android:name="miui.rear.policy"
+                android:value="miui" />
+        </activity>
+
+        <!--
+          外部程序开关背屏歌词：Tasker / MacroDroid / adb 发广播。
+          用法与示例见 docs/背屏歌词适配方案.md 第 14 节。
+          exported 是刻意的——不导出，外部程序就调用不到。
+        -->
+        <receiver
+            android:name=".rear.RearLyricsControlReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="top.izuna.foliamajor.rear.START" />
+                <action android:name="top.izuna.foliamajor.rear.STOP" />
+                <action android:name="top.izuna.foliamajor.rear.TOGGLE" />
+            </intent-filter>
+        </receiver>
+
+    <service
+        android:name=".KeepAliveService"
+        android:exported="false"
+        android:foregroundServiceType="mediaPlayback" />
+
+    <!--
+      播放保活 + 媒体通知：FoliaCorePlugin 在开始播放时启动它。
+      缺这条注册，startService 会直接抛 "not found"，后台播放保活整条链路失效，
+      进程随后被系统回收，表现为切后台没多久就「闪退」。
+    -->
+    <service
+        android:name=".FoliaPlaybackService"
+        android:exported="false"
+        android:foregroundServiceType="mediaPlayback" />
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/file_paths" />
+        </provider>
+
+        <!-- Shizuku 特权通道：无 root 时由它提供 am / service call 的执行能力。 -->
+        <provider
+            android:name="rikka.shizuku.ShizukuProvider"
+            android:authorities="${applicationId}.shizuku"
+            android:enabled="true"
+            android:exported="true"
+            android:multiprocess="false"
+            android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
+    </application>
+
+    <!-- Permissions -->
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <!-- Shizuku：向 Shizuku Manager 申请特权通道（背屏投屏用）。 -->
+    <uses-permission android:name="moe.shizuku.manager.permission.API_V23" />
+</manifest>

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Folia 是自托管客户端：在线音乐后端通常跑在 http://<局域网IP>:3000，
+  或者经 adb reverse 映射的 http://localhost:3000。默认情况下 Android 会拦截明文 HTTP，
+  这里显式放开，否则 WebView 的请求在发出前就被系统拦掉。
+  只在本机/自建服务上使用；如果后端是公网 HTTPS，可以删掉这个文件。
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

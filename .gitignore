@@ -1,0 +1,52 @@
+# 依赖
+node_modules/
+_runtime/jsproj/node_modules/
+vendor/kugoumusicapi/node_modules/
+
+# 本地 Gradle 运行时（构建时从只读缓存复制过来的依赖，体积 GB 级，不入库）
+_runtime/gradle-*/
+_runtime/gradle-home/
+
+# 构建产物
+dist/
+build/
+# 上面的 build/ 会连源码目录 dev/build/ 一起忽略，导致分发副本缺文件（见 dev/build/buildIdentity.mjs）。
+!dev/build/
+!dev/build/**
+android/build/
+android/app/build/
+android/app/src/main/assets/public/
+android/.gradle/
+android/local.properties
+*.apk
+*.aab
+
+# 打包中间产物
+_runtime/jsproj/nodejs-project.zip
+android/app/src/main/assets/nodejs-project.zip
+android/app/src/main/assets/webapp.zip
+
+# 本地环境与密钥
+.env
+*.local
+qq-session-secret.txt
+.auth-state/
+.gemini/
+*.jks
+*.keystore
+android/keystore.properties
+
+# 旧版本备份与临时文件
+src-0.6.7-backup/
+*.log
+folia-shot*.jpg
+.DS_Store
+.workbuddy/
+.github/
+
+# 本机截图、探针、运行时缓存
+_shot/
+_shots/
+dev-dist/
+_runtime/
+vite.config.ts.sonnet-bak
