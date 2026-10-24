@@ -1,5 +1,6 @@
 import { PlayerState, type LyricData, type PlaybackContext, type SongResult, type StagePlayerSnapshot } from '../types';
 import type { PlayerChromeVisibilityMode, RemoteControlSnapshot, RemoteTrackTransition } from '../types/remoteControl';
+import type { SubtitleContentMode } from '../types';
 import type { VideoExportState } from '../types/videoExport';
 import { getPlaybackSongKey, isLocalPlaybackSong } from './appPlaybackGuards';
 import { buildStagePlayerSnapshot } from './stagePlayerSnapshot';
@@ -76,6 +77,8 @@ export interface RemoteControlSnapshotOptions {
     lyrics?: LyricData | null;
     includeLyrics?: boolean;
     playerChromeVisibilityMode: PlayerChromeVisibilityMode;
+    /** 副标题内容（翻译 / 罗马音 / 关闭）：遥控窗口与主窗口保持一致。 */
+    subtitleContentMode: SubtitleContentMode;
     trackTransition?: RemoteTrackTransition | null;
 }
 
@@ -226,6 +229,7 @@ export const buildRemoteControlSnapshotFromPlaybackSyncBridge = (
     mainWindowBorderVisible: model.mainWindowBorderVisible,
     playerChromeHidden: model.playerChromeHidden,
     playerChromeVisibilityMode: options.playerChromeVisibilityMode,
+    subtitleContentMode: options.subtitleContentMode,
     exportState: model.exportState,
     isDaylight: model.isDaylight,
     ...(options.includeLyrics ? { lyrics: options.lyrics ?? null } : {}),

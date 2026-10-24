@@ -33,6 +33,8 @@ type UseMediaSessionBridgeOptions = {
     mediaSessionPauseRef: RefObject<() => void>;
     mediaSessionPrevRef: RefObject<() => void>;
     mediaSessionNextRef: RefObject<() => Promise<void> | void>;
+    /** 系统媒体通知拖进度条触发，入参是秒。 */
+    mediaSessionSeekRef: RefObject<(timeSec: number) => void>;
     isNowPlayingControlDisabledRef: RefObject<boolean>;
 };
 
@@ -49,6 +51,7 @@ export const useMediaSessionBridge = ({
     mediaSessionPauseRef,
     mediaSessionPrevRef,
     mediaSessionNextRef,
+    mediaSessionSeekRef,
     isNowPlayingControlDisabledRef,
 }: UseMediaSessionBridgeOptions) => {
     // [folia] 安卓原生媒体会话的控制入口。
@@ -57,11 +60,20 @@ export const useMediaSessionBridge = ({
     useEffect(() => {
         if (!isCapacitorAndroid()) return;
         const onAction = (event: Event) => {
-            const action = (event as CustomEvent<{ action?: string }>).detail?.action;
+            const detail = (event as CustomEvent<{ action?: string; position?: number }>).detail;
+            const action = detail?.action;
             if (action === 'play') { void mediaSessionPlayRef.current?.(); return; }
             if (action === 'pause') { mediaSessionPauseRef.current?.(); return; }
             if (action === 'next') { void mediaSessionNextRef.current?.(); return; }
             if (action === 'previous') { mediaSessionPrevRef.current?.(); return; }
+            if (action === 'seek') {
+                // 原生 MediaSession 的 PlaybackState 位置是毫秒，播放器 seek 用秒。
+                const position = detail?.position;
+                if (typeof position === 'number' && Number.isFinite(position)) {
+                    mediaSessionSeekRef.current?.(Math.max(0, position / 1000));
+                }
+                return;
+            }
         };
         window.addEventListener('folia-native-media-action', onAction);
         return () => window.removeEventListener('folia-native-media-action', onAction);

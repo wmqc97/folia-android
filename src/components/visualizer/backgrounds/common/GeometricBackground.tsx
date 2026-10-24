@@ -1,5 +1,5 @@
-import React, { useMemo } from 'react';
-import { AnimatePresence, motion, MotionValue, useSpring, useTransform } from 'framer-motion';
+import React, { useEffect, useMemo, useState } from 'react';
+import { motion, MotionValue, useSpring, useTransform } from 'framer-motion';
 import * as LucideIcons from 'lucide-react';
 import { AudioBands, Theme } from '../../../../types';
 
@@ -291,7 +291,10 @@ const AnimatedGeometricScene: React.FC<{
   );
 };
 
-const GeometricLayer: React.FC<GeometricBackgroundProps> = ({
+const GeometricLayer: React.FC<GeometricBackgroundProps & {
+  /** 入场起始不透明度。默认 0（淡入）；换歌交接的旧层传 1，它由外层负责淡出。 */
+  enterFrom?: number;
+}> = ({
   theme,
   audioPower,
   audioBands,
@@ -299,6 +302,7 @@ const GeometricLayer: React.FC<GeometricBackgroundProps> = ({
   hideShapes = false,
   disableVignette = false,
   paused = false,
+  enterFrom = 0,
 }) => {
   const shapes = useMemo<BackgroundShape[]>(() => {
     const shapeTypes: Array<Exclude<ShapeType, 'icon'>> = ['circle', 'square', 'triangle', 'cross'];
@@ -346,7 +350,7 @@ const GeometricLayer: React.FC<GeometricBackgroundProps> = ({
   return (
     <motion.div
       className="absolute inset-0"
-      initial={{ opacity: 0 }}
+      initial={{ opacity: enterFrom }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       transition={{ duration: 0.6, ease: 'easeInOut' }}
@@ -374,19 +378,49 @@ const GeometricLayer: React.FC<GeometricBackgroundProps> = ({
   );
 };
 
+/** 换歌时旧背景层多留的时长：新层是 0.6s 淡入的，交接必须盖住这段淡入。 */
+const LAYER_HANDOVER_MS = 700;
+
 const GeometricBackground: React.FC<GeometricBackgroundProps> = React.memo((props) => {
   const layerKey = String(props.seed ?? 'default');
+  /*
+   * 换歌交接（背屏上表现为「闪一下黑」）：
+   * 换 seed 会整层重挂，新层从 opacity 0 淡入 0.6s；如果这一帧旧层已经撤掉，
+   * 屏幕上就只剩主题底色 —— 没有形状、也没有歌词，看起来就是闪一下黑。
+   * 所以换 seed 时把旧层留在下面同时淡出，两层加起来始终不透明。
+   *
+   * 不要用 AnimatePresence 的 exit 做这件事：它的子节点是自定义组件，
+   * 退出与入场不在同一帧对上，仍会漏出空帧。
+   */
+  const [shownKey, setShownKey] = useState(layerKey);
+  const [outgoingKey, setOutgoingKey] = useState<string | null>(null);
+
+  if (shownKey !== layerKey) {
+    setOutgoingKey(shownKey);
+    setShownKey(layerKey);
+  }
+
+  useEffect(() => {
+    if (outgoingKey === null) return undefined;
+    const timer = window.setTimeout(() => setOutgoingKey(null), LAYER_HANDOVER_MS);
+    return () => window.clearTimeout(timer);
+  }, [outgoingKey]);
 
   return (
     <div className="absolute inset-0 overflow-hidden pointer-events-none">
-      {/* Do NOT use initial={false} on AnimatePresence here.
-          initial={false} propagates via context to ALL nested motion components,
-          causing keyframe animations with repeat:Infinity to never be dispatched
-          on mount. Removing it allows the container to fade in (0.6s) and all
-          child keyframe animations to start normally on every mount. */}
-      <AnimatePresence mode="sync">
-        <GeometricLayer key={layerKey} {...props} />
-      </AnimatePresence>
+      {outgoingKey !== null && (
+        <motion.div
+          key={`outgoing-${outgoingKey}`}
+          className="absolute inset-0"
+          initial={{ opacity: 1 }}
+          animate={{ opacity: 0 }}
+          transition={{ duration: 0.6, ease: 'easeInOut' }}
+        >
+          {/* enterFrom=1：旧层必须立刻不透明，否则它自己的淡入和外层淡出会互相抵消，交接期照样是空的。 */}
+          <GeometricLayer {...props} seed={outgoingKey} enterFrom={1} />
+        </motion.div>
+      )}
+      <GeometricLayer key={shownKey} {...props} />
     </div>
   );
 }, (prevProps, nextProps) => {

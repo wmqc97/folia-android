@@ -90,13 +90,11 @@ export const RingLine: React.FC<RingLineProps> = ({
     const baseColor = useMemo(() => colorWithAlpha(theme.primaryColor, 0.55), [theme.primaryColor]);
     const highlightColor = theme.accentColor || theme.primaryColor;
 
-    const isRawScaleRef = useRef(false);
     const normalizePower = useCallback((power: number) => {
+        // audioPower 是 0..255（usePlaybackVisualizerBridge 的 process 返回 *255），直接 /255。
+        // 之前的 isRawScaleRef 自适应会在 pow 压缩后大量值 <1.0 时误判，导致 power 单位跳变、频闪。
         if (!Number.isFinite(power)) return 0;
-        if (power > 1.0) {
-            isRawScaleRef.current = true;
-        }
-        return Math.max(0, Math.min(1, isRawScaleRef.current ? power / 255 : power));
+        return Math.max(0, Math.min(1, power / 255));
     }, []);
 
     // Calculate layout positioning and angles for each character/grapheme.

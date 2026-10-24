@@ -334,10 +334,29 @@ public class RearLyricsActivity extends AppCompatActivity {
      * 避免把 280 这种物理像素常量写进前端样式。
      */
     private String buildRearUrl() {
+        // 调试覆盖：系统属性 folia.rear.debugUrl 指向任意本地/远程 URL 时，
+        // 背屏 WebView 加载它而不是默认歌词页。用于在真背屏上看测试页。
+        // SystemProperties 是 @hide API，反射调用。
+        String debugUrl = readSystemProperty("folia.rear.debugUrl");
+        if (!debugUrl.isEmpty()) {
+            return debugUrl;
+        }
         return REAR_ORIGIN + "/index.html?rear=1"
                 + "&safeLeftPx=" + safeLeftPx
                 + "&physicalWidthPx=" + physicalWidthPx()
                 + "&cornerRadiusPx=" + cornerRadiusPx;
+    }
+
+    /** 反射读系统属性；失败返回空串。 */
+    private static String readSystemProperty(String key) {
+        try {
+            Class<?> cls = Class.forName("android.os.SystemProperties");
+            java.lang.reflect.Method method = cls.getMethod("get", String.class, String.class);
+            Object value = method.invoke(null, key, "");
+            return value == null ? "" : String.valueOf(value);
+        } catch (Throwable ignored) {
+            return "";
+        }
     }
 
     /**

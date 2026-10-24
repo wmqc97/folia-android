@@ -1,5 +1,14 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 明确声明支持大屏与任意密度，减少厂商兼容模式把 App 塞进固定比例窗口的概率（上游 v0.7.21）。 -->
+    <supports-screens
+        android:anyDensity="true"
+        android:largeScreens="true"
+        android:normalScreens="true"
+        android:resizeable="true"
+        android:smallScreens="true"
+        android:xlargeScreens="true" />
+
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
@@ -17,8 +26,8 @@
 
         <!--
           主界面。不出现在最近任务里是为了「后台播放不中断」：划掉任务会销毁 WebView
-          （音频在 WebView 里放）导致静音。后台播放现在由 KeepAliveService / FoliaPlaybackService
-          这两个前台服务兜底，任务重新可见也不会把播放带停。
+          （音频在 WebView 里放）导致静音。后台播放由 FoliaPlaybackService 这个前台服务兜底，
+          任务重新可见也不会把播放带停。
           返回键由 MainActivity 自己接管，退回后台而不结束 Activity。
         -->
         <activity
@@ -29,6 +38,7 @@
             android:launchMode="singleTask"
             android:screenOrientation="fullSensor"
             android:excludeFromRecents="false"
+            android:resizeableActivity="true"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -72,11 +82,6 @@
             </intent-filter>
         </receiver>
 
-    <service
-        android:name=".KeepAliveService"
-        android:exported="false"
-        android:foregroundServiceType="mediaPlayback" />
-
     <!--
       播放保活 + 媒体通知：FoliaCorePlugin 在开始播放时启动它。
       缺这条注册，startService 会直接抛 "not found"，后台播放保活整条链路失效，
@@ -108,9 +113,23 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!--
+      本机音乐扫描：FoliaCorePlugin 的 `audio` 权限别名会运行时申请这两条，并且用
+      MediaStore 列出本机音频。清单里不声明的话，运行时申请必然被拒，扫描本机音乐等于空的。
+      Android 13 起读音频换成 READ_MEDIA_AUDIO，旧版本仍用 READ_EXTERNAL_STORAGE。
+    -->
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <!--
+      播放保活的锁：FoliaPlaybackService 用 PARTIAL_WAKE_LOCK + WifiLock 撑住息屏后的
+      CPU 与 Wi-Fi（音频是从 LocalAudioServer 拉的流）。缺这两条，acquire() 会抛
+      SecurityException，锁拿不到就等于没做保活。
+    -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
     <!-- Shizuku：向 Shizuku Manager 申请特权通道（背屏投屏用）。 -->
     <uses-permission android:name="moe.shizuku.manager.permission.API_V23" />
 </manifest>

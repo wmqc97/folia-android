@@ -1,5 +1,5 @@
-import React, { useMemo, useRef } from 'react';
-import { useFrame } from '@react-three/fiber';
+import React, { useEffect, useMemo, useRef } from 'react';
+import { useFrame, useThree } from '@react-three/fiber';
 import { type MotionValue } from 'framer-motion';
 import * as THREE from 'three';
 import { type Line } from '../../../types';
@@ -55,6 +55,9 @@ interface CameraRigProps {
      * flight: the camera captures its current pose and flies an eased Bezier arc to the incoming scene's
      * opening pose over TRANSITION_DURATION, then hands back to the normal follow. 0 = no transition. */
     transitionEpoch: number;
+    /** 后屏可读性适配：取景中心移到可读区中心（222.5 CSS），整行宽度约束到可读区宽度。
+     * 详见 docs/背屏摄像头规避基准.md。运镜语言完全保留，只夹歌词组位置。 */
+    rearSafeArea?: { centerFraction: number; widthFraction: number };
 }
 
 const UP = new THREE.Vector3(0, 1, 0);
@@ -168,7 +171,33 @@ const CameraRig: React.FC<CameraRigProps> = ({
     activeLineWidthRef,
     motion,
     transitionEpoch,
+    rearSafeArea,
 }) => {
+    const { camera, size } = useThree();
+
+    /*
+     * 后屏可读性适配（docs/背屏摄像头规避基准.md）：
+     * 用户要求「效果撤回到主屏一样」—— 3D 运镜、漂移、回正、跟拍全部保留原样，
+     * 不改运镜语言。只做两件事：
+     *   1) 取景中心移到可读区中心（222.5 CSS / 626.5 物理）；
+     *   2) 整行宽度约束到可读区宽度（249 CSS）。
+     * 歌词组位置由 DioramaScene 的投影夹取锁定，镜头怎么动都不会把歌词推出绿区。
+     */
+    const cameraMotion = motion;
+
+    useEffect(() => {
+        const perspective = camera as THREE.PerspectiveCamera;
+        if (!rearSafeArea || !perspective.isPerspectiveCamera) {
+            perspective.clearViewOffset();
+            return;
+        }
+        // 负的 x 偏移把整个投影向右推：取景中心从画布中心移到右侧安全区中心。
+        const shift = (rearSafeArea.centerFraction - 0.5) * size.width;
+        // 负偏移把取景窗向右推：镜头光轴落在可读区中心（222.5 CSS / 626.5 物理），
+        // 内容随之右移。注意是 -shift，不是 +shift（+shift 会把内容推向左侧摄像头）。
+        perspective.setViewOffset(size.width, size.height, -shift, 0, size.width, size.height);
+        return () => perspective.clearViewOffset();
+    }, [camera, rearSafeArea, size.height, size.width]);
     // Cinematic transition flight: on an epoch change the camera snapshots its current pose and flies a
     // bowed eased arc to the incoming scene's live follow pose over TRANSITION_DURATION, then releases
     // back to the normal SmoothDamp follow (which continues seamlessly from the arrival pose).
@@ -232,7 +261,9 @@ const CameraRig: React.FC<CameraRigProps> = ({
         const camera = state.camera as THREE.PerspectiveCamera;
         const aspect = camera.isPerspectiveCamera ? camera.aspect : 1;
         const fov = camera.isPerspectiveCamera ? camera.fov : 55;
-        const visibleHalf = frameHalfWidth(DIORAMA_HERO_DISTANCE, fov, aspect) * DIORAMA_SAFE_FRAME_FRACTION;
+        const visibleHalf = frameHalfWidth(DIORAMA_HERO_DISTANCE, fov, aspect)
+            * DIORAMA_SAFE_FRAME_FRACTION
+            * (rearSafeArea?.widthFraction ?? 1);
 
         // Local frame of the current line on the winding path. Everything below is composed in it.
         const frame = resolved ? resolved.frame : getFrame([], 0);
@@ -247,6 +278,8 @@ const CameraRig: React.FC<CameraRigProps> = ({
 
         // Read-head = the line's ACTUAL text position (path anchor + placement offsets) + the lateral
         // truck that follows the sung word.
+        // 后屏也保留逐字跟拍（用户要求运镜与主屏一致）；歌词组由 DioramaScene 夹到可读区，
+        // 跟拍不会把歌词推出绿区。
         const truck = resolveReadHeadTruck(wordProgress, activeLineWidthRef.current, visibleHalf) * settle;
         const headR = placement.offsetR + truck;
         const headU = placement.offsetU;
@@ -265,9 +298,9 @@ const CameraRig: React.FC<CameraRigProps> = ({
             seed: shotSeed,
             lineIndex: resolved?.localIndex ?? 0,
             // moveScale IS the excursion away from the neutral trailing pose, so the settle rides it.
-            moveScale: motion.moveScale * settle,
+            moveScale: cameraMotion.moveScale * settle,
         });
-        const drift = resolveCameraDrift(now, shotSeed, motion.driftScale);
+        const drift = resolveCameraDrift(now, shotSeed, cameraMotion.driftScale);
         const offRight = shot.right + drift.swayX;
         const offUp = shot.up + drift.swayY + drift.lift;
         const offBack = shot.back + drift.dist;
@@ -306,8 +339,8 @@ const CameraRig: React.FC<CameraRigProps> = ({
         // at the ends) - so the arc offset releases with zero speed as the flight lands, instead of being
         // dropped mid-motion and kicking the camera (the little bounce right before the next lyric).
         const followSmooth = flying
-            ? FLIGHT_SMOOTH_TIME + (motion.smoothTime - FLIGHT_SMOOTH_TIME) * transitionEase(te)
-            : motion.smoothTime;
+            ? FLIGHT_SMOOTH_TIME + (cameraMotion.smoothTime - FLIGHT_SMOOTH_TIME) * transitionEase(te)
+            : cameraMotion.smoothTime;
         const swayEnv = flying ? Math.sin(Math.PI * te) ** 2 : 0;
         const arcMag = swayEnv * flight.flightLen * FLIGHT_ARC_FRAC;
         const sweepMag = swayEnv * flight.flightLen * TRANSITION_AIM_SWEEP * flight.side;
@@ -339,6 +372,7 @@ const CameraRig: React.FC<CameraRigProps> = ({
         // Aim beside the read-head by the line's compositional look offset (rule-of-thirds framing: the
         // text sits off-centre, the formation fills the rest), SmoothDamped the same way so the look flows
         // with the camera. During a flight the aim also SWEEPS sideways (a graceful mid-flight reframe).
+        // 后屏把构图偏移收掉：文字始终落在安全区中心，不再按三分法偏到左边。
         const lookOff = placement.lookR * settle;
         const lookX = baseX + R.x * lookOff + flight.perp.x * sweepMag;
         const lookY = baseY + R.y * lookOff + flight.perp.y * sweepMag;

@@ -79,6 +79,8 @@ interface DioramaSceneProps {
     // Written each frame with the active line's measured WORLD width so CameraRig can size its
     // word-following lateral truck to the actual subtitle - the subtitle/camera coupling.
     activeLineWidthRef: React.MutableRefObject<number>;
+    /** 后屏安全区宽度占比：当前行按这块宽度缩放，避免长句超出右侧。 */
+    rearSafeArea?: { centerFraction: number; widthFraction: number };
     // Live audio levels (0..255) - geometry/light reaction only (the camera stays audio-free).
     audioPower: MotionValue<number>;
     audioBands: AudioBands;
@@ -125,6 +127,7 @@ const DioramaScene: React.FC<DioramaSceneProps> = ({
     transitionOutgoingIndex,
     currentTime,
     activeLineWidthRef,
+    rearSafeArea,
     audioPower,
     audioBands,
     motion,
@@ -506,11 +509,58 @@ const DioramaScene: React.FC<DioramaSceneProps> = ({
             planes.soulMeshes.length = activeLineUnits.length;
         }
         if (unitsGroup && activeUnitsRaster && activeEntry && activeLine) {
-            const fit = resolveFrameFitScale(activeUnitsRaster.lineWidth, DIORAMA_HERO_DISTANCE, fov, aspect)
+            /*
+             * 后屏可读性适配（docs/背屏摄像头规避基准.md）：
+             * 字体放大一点，但长歌词仍要完整落在可读区（249 CSS / 699 物理）内。
+             * 做法：先按目标字号放大，再用 maxLineWidth 限制；短句按大字号显示，
+             * 长句自动缩到不超出可读区。
+             */
+            const REAR_FONT_BUMP = 1.12; // 字体放大 12%
+            const fitAspect = rearSafeArea ? aspect * rearSafeArea.widthFraction : aspect;
+            const baseFit = resolveFrameFitScale(activeUnitsRaster.lineWidth, DIORAMA_HERO_DISTANCE, fov, fitAspect)
                 * activeEntry.placement.scale * lyricsFontScale;
-            unitsGroup.scale.setScalar(fit);
+            const fit = rearSafeArea ? baseFit * REAR_FONT_BUMP : baseFit;
+            // 长句限制：渲染面宽度 587，可读区 249 CSS → 249/587 ≈ 0.424；
+            // 但 fit 是世界坐标缩放，约束用 lineWidth * fit <= maxLineWidth。
+            // maxLineWidth 取 hero * 0.9，约等于可读区宽度的 90%。
+            const maxLineWidth = DIORAMA_HERO_DISTANCE * 0.9;
+            const lineWorldWidth = activeUnitsRaster.lineWidth * fit;
+            const finalFit = lineWorldWidth > maxLineWidth ? fit * (maxLineWidth / lineWorldWidth) : fit;
+            unitsGroup.scale.setScalar(finalFit);
+            /*
+             * 后屏可读性适配（docs/背屏摄像头规避基准.md）：
+             * 3D 运镜、粒子、雾气、背景全部保持主屏原样，**不动相机、不动邻行、不动背景**。
+             * 只把当前行（unitsGroup）沿相机右方向平移，让它的投影中心落在
+             * 可读区中心 222.5 CSS / 626.5 物理（NDC ≈ 0.2824）；
+             * 叠加一个很小的正弦摆动（±22.5 CSS ≈ ±0.129 NDC 之内，实际取 ±0.038），
+             * 保留「在右侧区域内轻微摆动」的观感。
+             * 摄像头占用区 0..98 CSS 绝不进入。
+             */
+            if (rearSafeArea) {
+                // 只夹当前行（unitsGroup），不动相机、邻行、背景。
+                // 还原到 layoutDioramaActiveUnits 的原始位置，避免上一帧偏移累加。
+                unitsGroup.position.set(activeEntry.position[0], activeEntry.position[1], activeEntry.position[2]);
+                const perspective = camera as THREE.PerspectiveCamera;
+                if (perspective.isPerspectiveCamera) {
+                    const projected = unitsGroup.position.clone().project(camera);
+                    const view = unitsGroup.position.clone().applyMatrix4(camera.matrixWorldInverse);
+                    const halfWidth = Math.tan(THREE.MathUtils.degToRad(perspective.fov) / 2)
+                        * perspective.aspect
+                        * Math.abs(view.z);
+                    const cameraRight = new THREE.Vector3()
+                        .setFromMatrixColumn(camera.matrixWorld, 0)
+                        .normalize();
+                    // 轻微摆动：±0.038 NDC ≈ ±13 CSS ≈ ±37 物理（远小于 22.5 CSS 允许摆幅）。
+                    const sway = Math.sin(frameState.clock.elapsedTime * 0.6) * 0.038;
+                    // 当前行歌词字形中心：基础 222.5 CSS / 626.5 物理 → NDC 0.2824。
+                    // 用户反馈还要再右移 10-20 物理像素（中值 15 物理 ≈ 5.33 CSS ≈ 0.0304 NDC）。
+                    const GLYPH_CENTER_NDC = 0.2824 + 0.0304;
+                    const targetNdc = GLYPH_CENTER_NDC + sway;
+                    unitsGroup.position.addScaledVector(cameraRight, (targetNdc - projected.x) * halfWidth);
+                }
+            }
             // Publish the active line's world width so CameraRig sizes its word-following truck.
-            activeLineWidthRef.current = activeUnitsRaster.lineWidth * fit;
+            activeLineWidthRef.current = activeUnitsRaster.lineWidth * finalFit;
             const life = resolveTextLife(unitsGroup.position.distanceTo(camPos));
             const now = currentTime.get();
             const breath = 0.9 + 0.1 * Math.sin(frameState.clock.elapsedTime * 1.9);

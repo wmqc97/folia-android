@@ -1,4 +1,4 @@
-import React, { useLayoutEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { MotionValue } from 'framer-motion';
 import VisualizerRenderer from '../visualizer/VisualizerRenderer';
 import {
@@ -48,6 +48,12 @@ interface RemotePlaybackStageProps {
         /** 该效果专属的字号倍率，和 config.lyricsFontScale 叠乘；缺省 1。 */
         fontScale?: number;
     };
+    /**
+     * 是否按背屏版式渲染 visualizer（三行窗口、右侧可读区…）。
+     *
+     * <p>只有背屏页传 true；OBS 不传，主屏不走本组件。见 utils/rearRenderSurface.ts。
+     */
+    rearLayout?: boolean;
 
     className?: string;
     style?: React.CSSProperties;
@@ -62,6 +68,7 @@ const RemotePlaybackStage: React.FC<RemotePlaybackStageProps> = ({
     audioBands,
     renderBackground = true,
     rearLyricsFrame,
+    rearLayout = false,
     className = '',
     style,
 }) => {
@@ -70,6 +77,21 @@ const RemotePlaybackStage: React.FC<RemotePlaybackStageProps> = ({
     const background = renderBackground
         ? config.background
         : { ...config.background, transparent: true };
+
+    /*
+     * 播放态抖一下（缓冲、音频焦点在别的 App 之间来回、时钟包晚到）不该让背屏在
+     * 「静态场景 / 动画场景」两棵不同的树之间来回切 —— 每切一次就是一次可见的闪。
+     * 只有持续 800ms 的暂停才真的转静态；恢复播放立刻转回来。
+     */
+    const [stablePaused, setStablePaused] = useState(playbackState !== PlayerState.PLAYING);
+    useEffect(() => {
+        if (playbackState === PlayerState.PLAYING) {
+            setStablePaused(false);
+            return undefined;
+        }
+        const timer = window.setTimeout(() => setStablePaused(true), 800);
+        return () => window.clearTimeout(timer);
+    }, [playbackState]);
 
     const stageRef = useRef<HTMLDivElement | null>(null);
     /*
@@ -179,6 +201,7 @@ const RemotePlaybackStage: React.FC<RemotePlaybackStageProps> = ({
                 >
                 <VisualizerRenderer
                     mode={config.visualizerMode}
+                    rearLayout={rearLayout}
                     visualizerTunings={config.visualizerTunings}
                     currentTime={currentTime}
                     currentLineIndex={currentLineIndex}
@@ -195,7 +218,7 @@ const RemotePlaybackStage: React.FC<RemotePlaybackStageProps> = ({
                     showText={true}
                     seed={config.seed}
                     staticMode={config.staticMode}
-                    paused={playbackState !== PlayerState.PLAYING}
+                    paused={stablePaused}
                     visualizerOpacity={config.visualizerOpacity}
                     background={background}
                     lyricsFontScale={config.lyricsFontScale * frameFontScale}

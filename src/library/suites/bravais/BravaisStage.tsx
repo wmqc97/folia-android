@@ -5,6 +5,7 @@ import { FLIP_MAX_TILES } from '../../../components/wall/flipPlan';
 import { useDevicePixelRatio } from '../../../hooks/useMediaQuery';
 import { useReducedMotionFor } from '../../../hooks/useReducedMotionFor';
 import { useLatticeSettingsStore } from '../../../stores/useLatticeSettingsStore';
+import { useLatticePerformanceModeStore } from '../../../stores/useLatticePerformanceModeStore';
 import { useLibraryWallLookStore } from '../../../stores/useLibraryWallLookStore';
 import type { LibrarySuiteStageProps } from '../../core/contracts/suite';
 import { BRAVAIS_METRICS, BRAVAIS_OVERSCAN, BRAVAIS_SEAM_ACRYLIC_BLUR } from './bravaisConstants';
@@ -120,6 +121,7 @@ const BravaisStage: React.FC<LibrarySuiteStageProps> = ({
     const reducedTransitions = useBravaisReducedTransitions();
     const devicePixelRatio = useDevicePixelRatio();
     const vignette = useLatticeSettingsStore(state => state.latticeVignette);
+    const performanceMode = useLatticePerformanceModeStore(state => state.enabled);
     const lightsOn = useLatticeSettingsStore(state => state.latticeLightsOn);
     const tintEnabled = useLatticeSettingsStore(state => state.latticePosterTintEnabled);
     const tintCustom = useLatticeSettingsStore(state => state.latticePosterTintUseCustomColor);
@@ -421,6 +423,7 @@ const BravaisStage: React.FC<LibrarySuiteStageProps> = ({
         seamLook.seamClear ? 'has-clear-seam' : '',
         seamLook.backdropBlur ? 'has-backdrop-blur' : '',
         seeThrough && BRAVAIS_SEAM_ACRYLIC_BLUR ? 'has-seam-blur' : '',
+        performanceMode ? 'is-performance' : '',
         display?.layer.seam.home?.manage ? 'is-managing-hidden' : '',
         display?.layer.home?.batch ? 'is-batch' : '',
     ].filter(Boolean).join(' ');
@@ -477,7 +480,9 @@ const BravaisStage: React.FC<LibrarySuiteStageProps> = ({
                     expandedSlotKey={focus.expandedSlotKey}
                     focusedSlotKey={focus.focusedSlotKey}
                     linkedKey={panelFor !== null && panelFor === display?.layer.key ? linkedKey : null}
-                    pixelScale={(view?.scale ?? 1) * devicePixelRatio}
+                    pixelScale={performanceMode
+                        ? Math.min((view?.scale ?? 1) * devicePixelRatio, 1)
+                        : (view?.scale ?? 1) * devicePixelRatio}
                     reducedMotion={reducedTransitions}
                     didDragRef={camera.pointer.didDragRef}
                     handlers={interactions.handlers}

@@ -66,6 +66,7 @@ export function usePlaybackAudioBridge({
     const audioSrc = usePlaybackStore(state => state.audioSrc);
     const currentSong = usePlaybackStore(state => state.currentSong);
     const replayGainMode = usePlaybackStore(state => state.replayGainMode);
+    const playerState = usePlaybackStore(state => state.playerState);
     const enableMediaCache = useAudioSettingsStore(state => state.enableMediaCache);
     const isPanelOpen = useAppViewStore(state => state.isPanelOpen);
     const panelTab = useAppViewStore(state => state.panelTab);
@@ -137,7 +138,9 @@ export function usePlaybackAudioBridge({
         if (!audioRef.current || audioContextRef.current) return;
         try {
             const AudioContextClass = window.AudioContext || (window as Window & typeof globalThis & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-            const ctx = new AudioContextClass();
+            // 'playback' 用更大的缓冲：安卓 WebView 在跑可视化 + 通知更新时，
+            // 默认 'interactive' 的小缓冲容易出爆音/卡顿，音乐场景不需要那么低的延迟。
+            const ctx = new AudioContextClass({ latencyHint: 'playback' });
             audioContextRef.current = ctx;
 
             const analyser = ctx.createAnalyser();
@@ -198,6 +201,26 @@ export function usePlaybackAudioBridge({
         () => cacheSongAssetsFor(currentSong, audioSrc, getCoverUrl()),
         [audioSrc, cacheSongAssetsFor, currentSong, getCoverUrl],
     );
+
+    /**
+     * 暂停时挂起 WebAudio（播放时再 resume）。
+     *
+     * <p>AudioContext 只要开着，WebView 在系统看来就一直在输出音频：Chromium 会一直占着
+     * 音频焦点（dumpsys audio 里能看到它的 AudioFocusDelegate 一直挂着 GAIN，即使元素已经 paused）。
+     * 结果是 Folia 停了，别的 App 还是被压着放不出声 ——「和其他应用一起播放」永远不成立。
+     * 挂起之后音频流真的停掉，焦点才会还回去；恢复播放由 transport 的 resume() 负责。
+     *
+     * <p>只在真正的暂停/空闲时挂起：automix 过渡期间 playerState 一直是 PLAYING，不受影响。
+     */
+    useEffect(() => {
+        const context = audioContextRef.current;
+        if (!context) return;
+        if (playerState === PlayerState.PLAYING) {
+            if (context.state === 'suspended') void context.resume().catch(() => undefined);
+            return;
+        }
+        if (context.state === 'running') void context.suspend().catch(() => undefined);
+    }, [audioContextRef, playerState]);
 
     useEffect(() => {
         if (audioRef.current) {

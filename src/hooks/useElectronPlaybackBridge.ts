@@ -27,6 +27,7 @@ import { selectDisplayCoverUrl, selectDisplayDuration, selectDisplayLyrics, sele
 import { useAppChromeStore } from '../stores/useAppChromeStore';
 import { useThemeSettingsStore } from '../stores/useThemeSettingsStore';
 import { usePlayerChromeSettingsStore } from '../stores/usePlayerChromeSettingsStore';
+import { useTypographySettingsStore } from '../stores/useTypographySettingsStore';
 import { currentTime } from '../stores/motionSignals';
 
 // Bridges Electron-specific shell features without coupling to UI components.
@@ -126,6 +127,8 @@ export const useElectronPlaybackBridge = ({
     const mainWindowClickThroughEnabled = useAppChromeStore(state => state.isMainWindowClickThroughEnabled);
     const transparentPlayerBackground = usePlayerChromeSettingsStore(state => state.transparentPlayerBackground);
     const isDaylight = useThemeSettingsStore(state => state.isDaylight);
+    // 副标题内容模式跟着排版设置走：遥控窗口要与主窗口显示同一套副标题。
+    const subtitleContentMode = useTypographySettingsStore(state => state.subtitleContentMode);
     const activePlaybackContext = usePlaybackStore(state => state.activePlaybackContext);
     const audioSrc = usePlaybackStore(state => state.audioSrc);
     const cachedCoverUrl = usePlaybackStore(state => state.cachedCoverUrl);
@@ -281,6 +284,7 @@ export const useElectronPlaybackBridge = ({
                 includeLyrics: options.includeLyrics,
                 lyrics,
                 playerChromeVisibilityMode,
+                subtitleContentMode,
                 trackTransition: publishTrackTransitionRef.current && isTrackTransitionAudibleRef.current()
                     ? remoteTrackTransitionRef.current
                     : null,

@@ -92,17 +92,17 @@ const OnlineProviderLoginModal = ({
                     onClick={onClose}
                     aria-label={closeLabel}
                     className="absolute top-4 right-4 opacity-40 hover:opacity-100 rounded-full bg-white/5 p-1 transition-colors cursor-pointer"
-                    style={{ color: 'var(--text-primary)' }}
+                    style={{ color: '#fff' }}
                 >
                     <X size={16} />
                 </button>
-                <h3 className="text-lg font-bold mb-6" style={{ color: 'var(--text-primary)' }}>{title}</h3>
+                <h3 className="text-lg font-bold mb-6" style={{ color: '#fff' }}>{title}</h3>
                 {loginMethods && (
                     <div className="mb-5">
-                        <p className="text-[10px] font-semibold uppercase tracking-[0.16em] opacity-45 mb-1.5" style={{ color: 'var(--text-secondary)' }}>
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.16em] opacity-45 mb-1.5" style={{ color: 'rgba(255,255,255,0.62)' }}>
                             {loginMethods.title}
                         </p>
-                        <p className="text-[11px] leading-snug whitespace-pre-line opacity-55 mb-3" style={{ color: 'var(--text-secondary)' }}>
+                        <p className="text-[11px] leading-snug whitespace-pre-line opacity-55 mb-3" style={{ color: 'rgba(255,255,255,0.62)' }}>
                             {loginMethods.hint}
                         </p>
                         <div className="flex items-center justify-center gap-3">
@@ -158,12 +158,12 @@ const OnlineProviderLoginModal = ({
                             )}
                         </div>
                         {loginMethods && !awaitingMethod && (
-                            <p className="text-[11px] font-medium opacity-45" style={{ color: 'var(--text-secondary)' }}>
+                            <p className="text-[11px] font-medium opacity-45" style={{ color: 'rgba(255,255,255,0.62)' }}>
                                 {loginMethods.currentText}
                             </p>
                         )}
                         {/* 步骤一不显示状态文案：关窗重开时 hook 里还留着上一轮的状态，照原样显示会是过期信息。 */}
-                        <p className={`text-xs font-medium mt-2 ${state === 'confirmed' ? 'text-green-400' : 'opacity-60'}`} style={{ color: state === 'confirmed' ? undefined : 'var(--text-secondary)' }}>
+                        <p className={`text-xs font-medium mt-2 ${state === 'confirmed' ? 'text-green-400' : 'opacity-60'}`} style={{ color: state === 'confirmed' ? undefined : 'rgba(255,255,255,0.62)' }}>
                             {awaitingMethod || backendFailure ? '' : statusText}
                         </p>
                         {backendFailure?.onRestart && (
@@ -193,7 +193,7 @@ const OnlineProviderLoginModal = ({
                         </div>
                     )}
                 </div>
-                <p className="text-[10px] opacity-30 mt-6" style={{ color: 'var(--text-secondary)' }}>{note}</p>
+                <p className="text-[10px] opacity-30 mt-6" style={{ color: 'rgba(255,255,255,0.62)' }}>{note}</p>
             </motion.div>
         </motion.div>
     );

@@ -7,8 +7,11 @@ import android.app.PendingIntent;
 import android.app.Service;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.content.Context;
 import android.content.Intent;
 import android.net.wifi.WifiManager;
+import android.media.AudioFocusRequest;
+import android.media.AudioManager;
 import android.media.MediaMetadata;
 import android.media.session.MediaSession;
 import android.media.session.PlaybackState;
@@ -17,6 +20,7 @@ import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.os.PowerManager;
+import android.os.SystemClock;
 import android.text.TextUtils;
 import android.util.Base64;
 import android.util.Log;
@@ -37,16 +41,27 @@ import okhttp3.Request;
 import okhttp3.Response;
 import okhttp3.ResponseBody;
 
+import org.json.JSONObject;
+
 public class FoliaPlaybackService extends Service {
     private static final String TAG = "FoliaPlaybackService";
     private static final String CHANNEL_ID = "folia_playback";
     private static final int NOTIFICATION_ID = 31009;
-    /** 会话 tag：与 KeepAliveService 曾经的 tag 相同，但那个服务已不再持有会话。 */
+    /** 全局唯一的媒体会话 tag。 */
     private static final String SESSION_TAG = "FoliaPlayback";
     /** 通知进度条 / 时间戳用的更新间隔，1 秒足够，避免每帧重绘通知。 */
     private static final long PROGRESS_TICK_MS = 1000L;
     /** 封面位图上限：媒体通知与锁屏只用小图，按 512 裁切既清晰又不爆 binder。 */
     private static final int ARTWORK_TARGET_SIZE = 512;
+    /** 按缓存元数据重发一次通知（外部程序 / ColorOS 歌词桥刷新用，不需要重新推播放状态）。 */
+    public static final String ACTION_REFRESH_METADATA = "top.izuna.foliamajor.action.REFRESH_METADATA";
+    /** 服务心跳间隔：进程哪天被系统悄悄收掉，崩溃历史里靠最后一条心跳对时间。 */
+    private static final long SERVICE_HEARTBEAT_INTERVAL_MS = 10_000L;
+    /**
+     * `service-start` 的重复记录间隔。前台服务每次收到播放状态推送都会走一遍 `onStartCommand`，
+     * 崩溃历史只留 20 条，不节流的话这些重复记录会把真正的退出原因挤掉。
+     */
+    private static final long SERVICE_START_RECORD_INTERVAL_MS = 5_000L;
 
     private MediaSession mediaSession;
     private final ExecutorService artworkExecutor = Executors.newSingleThreadExecutor();
@@ -62,6 +77,21 @@ public class FoliaPlaybackService extends Service {
     private PowerManager.WakeLock wakeLock;
     private WifiManager.WifiLock wifiLock;
     private static volatile String powerDiagnostic = "inactive";
+    /** 服务是否存活。诊断与外部刷新意图靠它判断「还有没有必要发」。 */
+    private static volatile boolean running = false;
+    /** API 26+ 的音频焦点请求；留着引用才能在 onDestroy 里精确放弃焦点。 */
+    private AudioFocusRequest audioFocusRequest;
+    /** `service-start` 节流：上次写诊断时的播放态与曲目。 */
+    private volatile long lastServiceStartRecordAt = 0L;
+    private volatile boolean lastServiceStartPlaying = false;
+    private volatile String lastServiceStartTitle = "";
+    /** 每 10 秒一条服务心跳，写进 CrashDiagnostics 的独立槽位。 */
+    private final Runnable serviceHeartbeatRunnable = new Runnable() {
+        @Override public void run() {
+            recordServiceHeartbeat();
+            mainHandler.postDelayed(this, SERVICE_HEARTBEAT_INTERVAL_MS);
+        }
+    };
 
     /** 最近一次发布的元数据，进度刷新时直接复用，不必重新拼装。 */
     private volatile String lastTitle = "";
@@ -91,10 +121,22 @@ public class FoliaPlaybackService extends Service {
     @Override
     public void onCreate() {
         super.onCreate();
+        running = true;
         createNotificationChannel();
         instance = this;
         installArtworkBridge();
         mediaSession = new MediaSession(this, SESSION_TAG);
+        /*
+         * 焦点策略（改为「不独占」）：
+         * 1) 建服务时**不再**抢焦点 —— 之前 onCreate 就 requestAudioFocus(GAIN)，
+         *    结果是 Folia 一开（哪怕还没播），别的 App 的音乐立刻被暂停；
+         * 2) 焦点跟着播放态走：开始播放才申请，暂停/停止立刻归还（见 onStartCommand）；
+         * 3) 焦点变化监听器仍是 no-op，被别的 App 抢走也不自动暂停、不被 duck。
+         *
+         * 注意：WebView（Chromium）自己播放 <audio> 时也会申请 GAIN，
+         * 这个申请在 App 侧没有开关可关（android.webkit 没有对应 API），
+         * 所以「两边同时出声」最终还受这一层限制，详见 docs/背屏歌词适配方案.md。
+         */
         mediaSession.setCallback(new MediaSession.Callback() {
             @Override public void onPlay() { emit("play"); }
             @Override public void onPause() { emit("pause"); }
@@ -106,7 +148,9 @@ public class FoliaPlaybackService extends Service {
                 lastPositionMs = Math.max(0L, pos);
                 lastPositionAtMs = System.currentTimeMillis();
                 publishPlaybackState(lastPositionMs);
-                emit("seek");
+                // 把目标位置一起带回前端：只发一个光秃秃的 "seek"，
+                // 前端不知道要定位到哪，通知条拖快进/快退就等于没有效果。
+                emit("seek", lastPositionMs);
             }
         });
         mediaSession.setActive(true);
@@ -126,13 +170,78 @@ public class FoliaPlaybackService extends Service {
             wifiLock = wifiManager.createWifiLock(lockMode, "Folia:Playback");
             wifiLock.setReferenceCounted(false);
         }
+        recordServiceLifecycle("service-create", "Foreground playback service created");
+        mainHandler.post(serviceHeartbeatRunnable);
+    }
+
+    /** 服务是否存活。诊断与外部刷新意图用它判断还有没有必要发。 */
+    public static boolean isRunning() {
+        return running;
+    }
+
+    /**
+     * 申请播放焦点（GAIN），只在「正在播放」期间持有。
+     *
+     * 监听器刻意留空：收到 AUDIOFOCUS_LOSS / LOSS_TRANSIENT 也什么都不做，
+     * 所以被别的 App 抢走焦点时本 App 不会自己暂停，也不会被 duck
+     * （setWillPauseWhenDucked(false)）。暂停/停止时由 {@link #abandonPlaybackAudioFocus()}
+     * 立刻归还，避免「Folia 停着却一直占着焦点」把别的 App 压住。
+     */
+    private void requestPlaybackAudioFocus() {
+        try {
+            AudioManager audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+            if (audioManager == null) return;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                if (audioFocusRequest == null) {
+                    audioFocusRequest = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+                        .setAudioAttributes(buildAudioAttributes())
+                        // 不 duck：其他 App 短暂出声时系统不会压低本 App 的音量。
+                        .setWillPauseWhenDucked(false)
+                        .setOnAudioFocusChangeListener(focusChange -> { /* 刻意不响应：永不暂停 */ })
+                        .build();
+                }
+                audioManager.requestAudioFocus(audioFocusRequest);
+            } else {
+                //noinspection deprecation
+                audioManager.requestAudioFocus(
+                    focusChange -> { /* 刻意不响应：永不暂停 */ },
+                    AudioManager.STREAM_MUSIC,
+                    AudioManager.AUDIOFOCUS_GAIN);
+            }
+        } catch (Exception ignored) {
+            // 个别 ROM 的音频服务不可用；拿不到焦点不该拖垮播放。
+        }
+    }
+
+    /** 服务销毁时把焦点还回去，避免别的播放器以为还有人占着。 */
+    private void abandonPlaybackAudioFocus() {
+        try {
+            AudioManager audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+            if (audioManager == null) return;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                if (audioFocusRequest != null) audioManager.abandonAudioFocusRequest(audioFocusRequest);
+            } else {
+                //noinspection deprecation
+                audioManager.abandonAudioFocus(null);
+            }
+        } catch (Exception ignored) {
+        }
     }
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         if (intent == null || "clear".equals(intent.getAction())) {
+            recordServiceLifecycle("service-stop-command", "Stop command received");
             stopSelf();
             return START_NOT_STICKY;
+        }
+        if (ACTION_REFRESH_METADATA.equals(intent.getAction())) {
+            // 上游 v0.7.21：外部（ColorOS 歌词桥 / adb）只要求按缓存重画一次通知，
+            // 不重新推播放状态，所以不能走下面那段完整解析。
+            publishMetadata();
+            // 顺带应答一次「5 秒内进前台」：这条意图可能是 startForegroundService 发来的。
+            startForegroundSafely();
+            return START_STICKY;
         }
 
         String title = intent.getStringExtra("title");
@@ -175,14 +284,35 @@ public class FoliaPlaybackService extends Service {
             loadArtwork(currentArtworkUrl, bitmap -> {
                 if (!TextUtils.equals(currentArtworkUrl, nextArtworkUrl)) return;
                 publishMetadata();
+                refreshNotification();
             });
         }
 
+        boolean playStateChanged = lastPlaying != playing;
         lastPlaying = playing;
         lastPositionMs = Math.max(0L, position);
         lastPositionAtMs = System.currentTimeMillis();
         publishPlaybackState(lastPositionMs);
-        startForeground(NOTIFICATION_ID, buildNotification());
+        recordServiceStartIfNoteworthy(playing, title);
+        /*
+         * 焦点跟着播放态走：开播才申请，暂停/停止立刻归还。
+         * 归还这一步是关键 —— 以前只在 onDestroy 归还，于是「Folia 暂停着但服务还在」时
+         * 一直占着 GAIN，别的 App 想放歌就会被压住。
+         */
+        if (playStateChanged) {
+            if (playing) requestPlaybackAudioFocus();
+            else abandonPlaybackAudioFocus();
+        }
+        /*
+         * 每次 start 命令都进一次前台（上游 v0.7.21 的保活写法）。
+         *
+         * startForegroundService() 的「5 秒内必须 startForeground」契约是按每次 start 命令算的：
+         * 只在第一次进前台，后来前端再发 startForegroundService 时这次调用就没人应答，
+         * Android 12+ 直接抛 ForegroundServiceDidNotStartInTimeException，
+         * 表现就是「切后台没多久 App 自己闪退」。
+         * 这里传进去的就是最新构建的那张通知，不需要再单独 notify 一次。
+         */
+        startForegroundSafely();
         updatePlaybackLocks(playing);
         // 播放中起一个 1 秒的 tick，让通知进度条与时间自己走；暂停/停止时收掉。
         mainHandler.removeCallbacks(progressTicker);
@@ -190,7 +320,13 @@ public class FoliaPlaybackService extends Service {
         return START_STICKY;
     }
 
-    /** 用当前缓存的歌曲信息 + 已加载封面重建 MediaSession 元数据。 */
+    /**
+     * 用当前缓存的歌曲信息 + 已加载封面重建 MediaSession 元数据。
+     *
+     * 这里刻意不发通知：onStartCommand 紧接着就会 startForeground，重发一次只是多一次
+     * binder 调用（上游 v0.7.21 也是按「每次 start 命令只写一次通知」收口的）。
+     * 封面异步到位、或外部请求刷新时，由调用方补一次 {@link #refreshNotification()}。
+     */
     private void publishMetadata() {
         Bitmap artwork = appliedArtworkBitmap;
         MediaMetadata.Builder metadata = new MediaMetadata.Builder()
@@ -213,6 +349,11 @@ public class FoliaPlaybackService extends Service {
         }
         mediaSession.setMetadata(metadata.build());
         FoliaCorePlugin.notePlaybackArtworkApplied(artwork != null);
+    }
+
+    /** 封面到位 / 外部请求刷新时重发一次通知：MediaSession 里的位图不会自己刷到通知上。 */
+    private void refreshNotification() {
+        if (!running) return;
         NotificationManager manager = getSystemService(NotificationManager.class);
         if (manager != null) manager.notify(NOTIFICATION_ID, buildNotification());
     }
@@ -234,8 +375,8 @@ public class FoliaPlaybackService extends Service {
             )
             .setState(state, Math.max(0L, positionMs), speed)
             .build());
-        NotificationManager manager = getSystemService(NotificationManager.class);
-        if (manager != null) manager.notify(NOTIFICATION_ID, buildNotification());
+        // 不在这里 notify：MediaStyle 的进度由 MediaSession 驱动，
+        // 每秒重发通知只会撞上系统限流。通知重发只在播放态/元数据变化时做。
     }
 
     /** 声明「我在放音乐」，否则系统媒体 UI 可能不接管这个会话。 */
@@ -415,7 +556,10 @@ public class FoliaPlaybackService extends Service {
                 + "img.crossOrigin='anonymous';"
                 + "img.onload=function(){"
                 + "try{"
-                + "var size=Math.min(img.naturalWidth,img.naturalHeight);"
+                // 通知/锁屏封面只有几百像素，原图常见 3000px：不在这里收口的话，
+                // 本地 FLAC 内嵌大封面会被整张画进 canvas、再整张解回 Bitmap，
+                // 播放开始的瞬间就是几十 MB 的分配和一次长 GC（实测掉 60+ 帧）。
+                + "var size=Math.min(img.naturalWidth,img.naturalHeight,512);"
                 + "if(!size||size<=0){finish(false,'');return;}"
                 + "var c=document.createElement('canvas');"
                 + "c.width=size;c.height=size;"
@@ -478,6 +622,7 @@ public class FoliaPlaybackService extends Service {
                         "webview " + bitmap.getWidth() + "x" + bitmap.getHeight()
                     );
                     publishMetadata();
+                    refreshNotification();
                 });
             }
         }, "FoliaPlaybackArtwork");
@@ -546,6 +691,20 @@ public class FoliaPlaybackService extends Service {
      * the CPU or the Wi-Fi radio. Playback pulls the stream through LocalAudioServer, so losing
      * either one shows up as intermittent audio while the screen is off.
      */
+    /**
+     * 进前台的唯一入口：Android 12+ 在「后台启动限制」下会抛 ForegroundServiceStartNotAllowedException，
+     * API 34+ 在服务类型不匹配时抛 InvalidForegroundServiceTypeException —— 抛出去就是整个进程崩掉。
+     * 这里兜住并记录：这一次通知可能没起来，但播放与界面继续可用。
+     */
+    private void startForegroundSafely() {
+        try {
+            startForeground(NOTIFICATION_ID, buildNotification());
+        } catch (Throwable t) {
+            Log.w(TAG, "startForeground 失败，本次不进前台: " + t);
+            CrashDiagnostics.recordText(getApplicationContext(), "service", "startForeground", "foreground-start", "startForeground 失败", String.valueOf(t));
+        }
+    }
+
     private void updatePlaybackLocks(boolean playing) {
         try {
             if (playing) {
@@ -585,9 +744,81 @@ public class FoliaPlaybackService extends Service {
         FoliaCorePlugin.emitMediaAction(action);
     }
 
+    /** seek 需要把目标位置带回前端，play/pause/next 等只发动作名。 */
+    private void emit(String action, long positionMs) {
+        FoliaCorePlugin.emitMediaAction(action, positionMs);
+    }
+
+    /**
+     * 从最近任务里划掉任务时记一条。
+     *
+     * 前台服务在任务被移除后仍要活着（音频在 WebView 里，任务一没就静音），
+     * 所以这里只记录、不 stopSelf；下次崩溃排查时能对上「用户什么时候划的」。
+     */
+    @Override
+    public void onTaskRemoved(Intent rootIntent) {
+        CrashDiagnostics.recordText(
+            getApplicationContext(),
+            "activity-lifecycle",
+            "service",
+            "task-removed",
+            "Task removed from recents",
+            "FoliaPlaybackService.onTaskRemoved"
+        );
+        super.onTaskRemoved(rootIntent);
+    }
+
+    private void recordServiceLifecycle(String type, String message) {
+        CrashDiagnostics.recordText(
+            getApplicationContext(),
+            "service-lifecycle",
+            "service",
+            type,
+            message,
+            "FoliaPlaybackService"
+        );
+    }
+
+    /**
+     * 只在播放状态或曲目真的变了、或距上次记录已满 {@link #SERVICE_START_RECORD_INTERVAL_MS}
+     * 时记一条 `service-start`。推送本身仍然每次都处理，只是不再每次都写诊断。
+     */
+    private void recordServiceStartIfNoteworthy(boolean playing, String title) {
+        String normalizedTitle = title == null ? "" : title;
+        long now = SystemClock.elapsedRealtime();
+        boolean stateChanged = playing != lastServiceStartPlaying
+            || !normalizedTitle.equals(lastServiceStartTitle);
+        if (!stateChanged && now - lastServiceStartRecordAt < SERVICE_START_RECORD_INTERVAL_MS) {
+            return;
+        }
+        lastServiceStartRecordAt = now;
+        lastServiceStartPlaying = playing;
+        lastServiceStartTitle = normalizedTitle;
+        recordServiceLifecycle("service-start", "playing=" + playing);
+    }
+
+    /** 每 10 秒一条心跳：进程被系统悄悄收掉时，最后一条心跳的时间就是现场。 */
+    private void recordServiceHeartbeat() {
+        try {
+            JSONObject payload = new JSONObject();
+            payload.put("at", System.currentTimeMillis());
+            payload.put("playing", lastPlaying);
+            payload.put("wakeLock", wakeLock != null && wakeLock.isHeld() ? "held" : "released");
+            payload.put("wifiLock", wifiLock != null && wifiLock.isHeld() ? "held" : "released");
+            payload.put("foreground", true);
+            CrashDiagnostics.recordServiceHeartbeat(getApplicationContext(), payload.toString());
+        } catch (Exception ignored) {
+            // 漏一条心跳没关系，10 秒后还有下一条。
+        }
+    }
+
     @Override
     public void onDestroy() {
+        recordServiceLifecycle("service-destroy", "Foreground playback service destroyed");
+        running = false;
+        mainHandler.removeCallbacks(serviceHeartbeatRunnable);
         mainHandler.removeCallbacks(progressTicker);
+        abandonPlaybackAudioFocus();
         instance = null;
         artworkBridgeWebView = null;
         updatePlaybackLocks(false);

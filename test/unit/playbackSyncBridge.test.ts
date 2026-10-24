@@ -64,7 +64,7 @@ describe('playbackSyncBridge', () => {
         expect(model.artist).toBe('Artist 2');
         expect(model.coverUrl).toBe('https://example.com/cached.jpg');
 
-        expect(buildRemoteControlSnapshotFromPlaybackSyncBridge(model, { playerChromeVisibilityMode: 'auto-hide' })).toMatchObject({
+        expect(buildRemoteControlSnapshotFromPlaybackSyncBridge(model, { playerChromeVisibilityMode: 'auto-hide', subtitleContentMode: 'translation' })).toMatchObject({
             title: 'Current Song',
             artist: 'Artist 2',
             currentTime: 42,
@@ -127,7 +127,7 @@ describe('playbackSyncBridge', () => {
         });
 
         expect(model.hasTrack).toBe(false);
-        expect(buildRemoteControlSnapshotFromPlaybackSyncBridge(model, { playerChromeVisibilityMode: 'always-hidden' })).toMatchObject({
+        expect(buildRemoteControlSnapshotFromPlaybackSyncBridge(model, { playerChromeVisibilityMode: 'always-hidden', subtitleContentMode: 'translation' })).toMatchObject({
             hasTrack: false,
             controlsDisabled: true,
             isStageActive: true,

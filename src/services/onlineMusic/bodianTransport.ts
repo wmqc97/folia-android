@@ -1,6 +1,9 @@
 import { OnlineProviderError } from '../../types/onlineMusic';
 import type { BodianOperation, BodianParams, BodianResult } from 'bodian-music-api';
 import { isFoliaExtensionBridgeAvailable, requestFoliaExtension } from '../foliaExtensionBridge';
+// 原生协议后端（上游 0.7.21）：安卓 APK 直接在 WebView 内跑波点协议，请求经 FoliaBridge 发出。
+import { handleBodianRequest } from '../../audioNative/bodian-impl.js';
+import { isNativeBridgeAvailable } from '../../audioNative/core';
 
 // src/services/onlineMusic/bodianTransport.ts
 
@@ -34,6 +37,13 @@ export async function requestBodian<T = unknown>(operation: BodianOperation, par
             result = await window.electron.bodianRequest(operation, boundedParams);
         } catch {
             throw new OnlineProviderError('network', 'Bodian desktop request failed', 'bodian');
+        }
+    } else if (isNativeBridgeAvailable()) {
+        // 安卓 APK：没有扩展桥也能用 —— 原生协议层自带波点的签名与 Cookie 罐。
+        try {
+            result = await handleBodianRequest(operation, boundedParams) as BodianBridgeResult;
+        } catch {
+            throw new OnlineProviderError('network', 'Bodian native request failed', 'bodian');
         }
     } else {
         if (!(await isFoliaExtensionBridgeAvailable())) {

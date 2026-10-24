@@ -12,6 +12,7 @@ import { prewarmLatticeLyrics } from './lyrics/prewarmLatticeLyrics';
 import { prewarmWallPosterArtwork, useWallPosterArtwork } from '../../wall/useWallPosterArtwork';
 import { countRender } from '../../../dev/renderCount';
 import { useLatticeSettingsStore } from '../../../stores/useLatticeSettingsStore';
+import { useLatticePerformanceModeStore } from '../../../stores/useLatticePerformanceModeStore';
 import {
     WALL_HANDOFF_FLIP_IN_MS,
     WALL_HANDOFF_FLIP_OUT_MS,
@@ -166,7 +167,7 @@ function LatticePoster({
     // edge. Both inputs are discrete - gears are integer spans and the camera only rescales on a
     // breakpoint - so this is not a per-frame value even while the card animates towards the size.
     // 性能优先时封面不再按设备像素取档：高 DPR 屏上那意味着每张卡都要解一张大一档的图。
-    const performanceMode = useLatticeSettingsStore(state => state.latticePerformanceMode);
+    const performanceMode = useLatticePerformanceModeStore(state => state.enabled);
     const lightsOn = useLatticeSettingsStore(state => state.latticeLightsOn);
     const coverTargetPx = Math.max(rect.width, rect.height) * pixelScale;
     const coverUrl = useWallPosterArtwork(

@@ -29,6 +29,8 @@ export interface LumiereUnitOptions {
     audioAt?: (time: number) => LumiereAudioFrame;
     /** 统一覆盖排版（不给则按光位）。 */
     typography?: WindowTypography;
+    /** 背屏可读性适配：左内边距额外值（高度单位），把歌词推进可读区。 */
+    safeLeftInset?: number;
 }
 
 export interface LumiereUnit {
@@ -81,6 +83,7 @@ export const createLumiereUnit = (pixi: PixiModule, options: LumiereUnitOptions)
             : null,
         audioAt: options.audioAt,
         typography: options.typography,
+        safeLeftInset: options.safeLeftInset,
         sections: paragraph.sections,
     });
     const shotAt = (time: number) => {

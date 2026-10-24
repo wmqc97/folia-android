@@ -30,8 +30,15 @@ import java.util.TimeZone;
 public final class CrashDiagnostics {
     private static final String PREFS = "folia_crash_diagnostics";
     private static final String KEY_HISTORY = "history";
+    private static final String KEY_LAST_SERVICE_HEARTBEAT = "last_service_heartbeat";
+    private static final String KEY_PREVIOUS_SERVICE_HEARTBEAT = "previous_service_heartbeat";
     private static final String KEY_LAST_EXIT_TIMESTAMP = "last_exit_timestamp";
-    private static final int MAX_RECORDS = 5;
+
+    /**
+     * 20 条而不是 5 条：前台服务每次播放状态推送都会记一条 `service-start`（已按 5 秒节流），
+     * 只留 5 条的话真正的退出原因会被这些正常记录挤掉。
+     */
+    private static final int MAX_RECORDS = 20;
     private static final int MAX_STACK_CHARS = 12_000;
     private static final long EXIT_LOOKBACK_MS = 7L * 24L * 60L * 60L * 1000L;
     private static final int EXIT_REASON_SIGNALED = 2;
@@ -41,7 +48,13 @@ public final class CrashDiagnostics {
     private static final int EXIT_REASON_ANR = 6;
     private static final int EXIT_REASON_INITIALIZATION_FAILURE = 7;
     private static final int EXIT_REASON_EXCESSIVE_RESOURCE_USAGE = 9;
+    /** 用户主动「强行停止」；排查保活时要能和真正的崩溃区分开。 */
+    private static final int EXIT_REASON_USER_REQUESTED = 10;
+    /** 用户在系统 UI 里结束应用（多任务划掉 / 电池设置里停）。 */
+    private static final int EXIT_REASON_USER_STOPPED = 11;
     private static final int EXIT_REASON_DEPENDENCY_DIED = 12;
+    /** 被系统冷冻（cached app freezer）导致的退出。 */
+    private static final int EXIT_REASON_FREEZER = 14;
     private static volatile boolean installed = false;
 
     private CrashDiagnostics() {}
@@ -50,6 +63,19 @@ public final class CrashDiagnostics {
         if (installed || context == null) return;
         installed = true;
         Context appContext = context.getApplicationContext();
+        // 把上一轮会话的最后一条服务心跳挪到 previous 槽位：进程被突然收掉时，
+        // 新会话一启动就会覆盖 last，只有这里留下的副本能说明「上一次活到什么时候」。
+        try {
+            SharedPreferences preferences = appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+            String previousServiceHeartbeat = preferences.getString(KEY_LAST_SERVICE_HEARTBEAT, "");
+            if (!previousServiceHeartbeat.isEmpty()) {
+                preferences.edit()
+                    .putString(KEY_PREVIOUS_SERVICE_HEARTBEAT, previousServiceHeartbeat)
+                    .apply();
+            }
+        } catch (Exception ignored) {
+            // 心跳归档是尽力而为，失败不影响崩溃记录。
+        }
         final Thread.UncaughtExceptionHandler previous = Thread.getDefaultUncaughtExceptionHandler();
         Thread.setDefaultUncaughtExceptionHandler((thread, error) -> {
             record(appContext, "native-uncaught", thread == null ? "unknown" : thread.getName(), error);
@@ -116,6 +142,42 @@ public final class CrashDiagnostics {
             preferences.edit().putString(KEY_HISTORY, next.toString()).commit();
         } catch (Exception ignored) {
             // Crash recording must never become a second crash.
+        }
+    }
+
+    /**
+     * 前台服务每 10 秒写一条心跳。
+     *
+     * 用 apply() 而不是 commit()：这条路径在播放期间每 10 秒跑一次，只是面包屑，
+     * 绝不能阻塞音频线程或主线程。
+     */
+    public static void recordServiceHeartbeat(Context context, String payload) {
+        if (context == null) return;
+        try {
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit()
+                .putString(KEY_LAST_SERVICE_HEARTBEAT, limit(payload, 2_000))
+                .apply();
+        } catch (Exception ignored) {}
+    }
+
+    public static String readServiceHeartbeat(Context context) {
+        if (context == null) return "";
+        try {
+            return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .getString(KEY_LAST_SERVICE_HEARTBEAT, "");
+        } catch (Exception ignored) {
+            return "";
+        }
+    }
+
+    public static String readPreviousServiceHeartbeat(Context context) {
+        if (context == null) return "";
+        try {
+            return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .getString(KEY_PREVIOUS_SERVICE_HEARTBEAT, "");
+        } catch (Exception ignored) {
+            return "";
         }
     }
 
@@ -210,7 +272,10 @@ public final class CrashDiagnostics {
             || reason == EXIT_REASON_SIGNALED
             || reason == EXIT_REASON_EXCESSIVE_RESOURCE_USAGE
             || reason == EXIT_REASON_LOW_MEMORY
-            || reason == EXIT_REASON_DEPENDENCY_DIED) {
+            || reason == EXIT_REASON_DEPENDENCY_DIED
+            || reason == EXIT_REASON_USER_REQUESTED
+            || reason == EXIT_REASON_USER_STOPPED
+            || reason == EXIT_REASON_FREEZER) {
             return true;
         }
         return false;
@@ -224,7 +289,10 @@ public final class CrashDiagnostics {
         if (reason == EXIT_REASON_SIGNALED) return "SIGNALED";
         if (reason == EXIT_REASON_EXCESSIVE_RESOURCE_USAGE) return "EXCESSIVE_RESOURCE_USAGE";
         if (reason == EXIT_REASON_LOW_MEMORY) return "LOW_MEMORY";
+        if (reason == EXIT_REASON_USER_REQUESTED) return "USER_REQUESTED";
+        if (reason == EXIT_REASON_USER_STOPPED) return "USER_STOPPED";
         if (reason == EXIT_REASON_DEPENDENCY_DIED) return "DEPENDENCY_DIED";
+        if (reason == EXIT_REASON_FREEZER) return "FREEZER";
         return "OTHER";
     }
 

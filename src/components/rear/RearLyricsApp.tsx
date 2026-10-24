@@ -13,6 +13,24 @@ import {
 import { resolveRearLyricsFrame } from '../../stores/useTypographySettingsStore';
 import { mergeRearLyricsVisualConfig } from '../../utils/rearLyricsVisualSettings';
 
+declare global {
+    interface Window {
+        /** 背屏页运行标记：视觉层用它判断是否启用右侧安全区。 */
+        __FOLIA_REAR__?: boolean;
+    }
+}
+
+/*
+ * 背屏页标记只在本页（?rear=1）成立。
+ *
+ * 不能无条件赋值：bootstrap.tsx 静态 import 了本文件，主屏 bundle 一加载就会执行到这里，
+ * 主屏的 visualizer 就会读到 __FOLIA_REAR__ = true 而按背屏版式渲染
+ * （歌词被推到右侧可读区、三行窗口、强制横排…）。版式判定见 utils/rearRenderSurface.ts。
+ */
+if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('rear') === '1') {
+    window.__FOLIA_REAR__ = true;
+}
+
 // src/components/rear/RearLyricsApp.tsx
 // 背屏歌词页根组件（?rear=1，由原生 RearLyricsActivity 的 WebView 加载）。
 //
@@ -141,6 +159,7 @@ const RearLyricsApp: React.FC = () => {
                         audioBands={audioBands}
                         renderBackground={false}
                         rearLyricsFrame={rearLyricsFrame}
+                        rearLayout
                         style={{ height: '100%' }}
                     />
                 ) : (

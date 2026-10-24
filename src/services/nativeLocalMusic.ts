@@ -2,6 +2,7 @@ import type { LocalSong } from '../types';
 import { saveLocalSongs } from './db';
 import { buildImportedMetadataSnapshot } from '../utils/localSongMetadata';
 import { parseEmbeddedMetadataAsync } from '../utils/localMetadataWorkerClient';
+import { stageLocalCoverAsset } from './localCoverAssetService';
 import { noteLibraryStep } from '../audioNative/api/libraryTrace.js';
 
 // src/services/nativeLocalMusic.ts
@@ -326,6 +327,18 @@ export const pickAndroidLocalMusic = async (): Promise<LocalSong[]> => {
         });
 
         const title = metadata?.title || fallbackTitle;
+        // 内嵌封面：与桌面导入同管线 —— stage 成 content-addressed 资产，歌上记 localCoverAssetId
+        let localCoverAssetId: string | undefined;
+        let localCoverSource: 'embedded' | undefined;
+        try {
+            if (metadata?.coverAssetId && metadata?.cover) {
+                stageLocalCoverAsset(metadata.coverAssetId, metadata.cover);
+                localCoverAssetId = metadata.coverAssetId;
+                localCoverSource = 'embedded';
+            }
+        } catch (coverError) {
+            console.warn('[NativeLocalMusic] Failed to stage embedded cover', fileName, coverError);
+        }
         songs.push({
             id: `android-imported-${track.id}`,
             fileName,
@@ -338,6 +351,8 @@ export const pickAndroidLocalMusic = async (): Promise<LocalSong[]> => {
             addedAt: now,
             title,
             titleOrigin: 'import',
+            localCoverAssetId,
+            localCoverSource,
             importedMetadata: buildImportedMetadataSnapshot({
                 fileName,
                 embeddedTitle: metadata?.title,

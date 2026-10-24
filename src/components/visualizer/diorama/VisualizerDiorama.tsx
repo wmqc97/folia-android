@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import { DEFAULT_DIORAMA_TUNING, type Line } from '../../../types';
 import { isInterludeLine } from '../../../utils/lyrics/parserCore';
+import { resolveRearRenderSurface } from '../../../utils/rearRenderSurface';
 import { useVisualizerRuntime } from '../runtime';
 import { type VisualizerSharedProps } from '../definition';
 import VisualizerShell from '../VisualizerShell';
@@ -20,6 +21,7 @@ import {
     updateActiveSegmentLines,
 } from './dioramaSequencer';
 import { pickTransitionOffset, TRANSITION_DURATION } from './dioramaTransition';
+import { REAR_CAMERA_OVERSCAN } from '../../playbackStage/rearFrameGeometry';
 
 // src/components/visualizer/diorama/VisualizerDiorama.tsx
 // A 3D "flythrough" style: lyric lines are actual staged text objects along a winding path in world
@@ -139,6 +141,27 @@ const VisualizerDiorama: React.FC<VisualizerDioramaProps> = (props) => {
         () => resolveDioramaMotionParams(dioramaTuning, theme.animationIntensity),
         [dioramaTuning, theme.animationIntensity]
     );
+
+    /*
+     * 后屏安全区：摄像头硬件占左侧 98px，可视区 347x212，渲染面 587x452。
+     * 只在 ?rear=1 的背屏页启用；主屏和桌面不传，行为完全不变。
+     * centerFraction/widthFraction 都是相对渲染面宽度的比例。
+     */
+    const rearSafeArea = useMemo(() => {
+        // 只在背屏舞台 / 背屏样式预览（props.rearLayout）里启用；主屏保持原取景与构图。
+        if (!resolveRearRenderSurface(props.rearLayout)) return undefined;
+        const visibleWidth = 347;
+        const safeLeft = 98;
+        const surfaceWidth = visibleWidth + 2 * REAR_CAMERA_OVERSCAN;
+        // 可读区中心 222.5 CSS（= 98 + 249/2）；
+        // 渲染面原点在 -120，所以渲染面坐标 = 222.5 + 120 = 342.5；
+        // centerFraction = 342.5 / 587 ≈ 0.5835。
+        const safeCenterX = (safeLeft + visibleWidth) / 2;
+        return {
+            centerFraction: (REAR_CAMERA_OVERSCAN + safeCenterX) / surfaceWidth,
+            widthFraction: (visibleWidth - safeLeft) / surfaceWidth,
+        };
+    }, [props.rearLayout]);
 
     // ── "Wait until ready" gate ───────────────────────────────────────────────────────────────────
     // A newly-selected song's data loads asynchronously (URL fetch + "Matching best lyrics"); the parent
@@ -415,6 +438,7 @@ const VisualizerDiorama: React.FC<VisualizerDioramaProps> = (props) => {
                         // Synchronous ref value (not the state): the flight must start the SAME frame the
                         // follow pose jumps to the new offset corridor, or the seek-snap would fire first.
                         transitionEpoch={transitionEpochRef.current}
+                        rearSafeArea={rearSafeArea}
                     />
                     <DioramaScene
                         theme={theme}
@@ -423,6 +447,7 @@ const VisualizerDiorama: React.FC<VisualizerDioramaProps> = (props) => {
                         transitionOutgoingIndex={transition?.outgoingIndex ?? null}
                         currentTime={currentTime}
                         activeLineWidthRef={activeLineWidthRef}
+                        rearSafeArea={rearSafeArea}
                         audioPower={audioPower}
                         audioBands={audioBands}
                         motion={motionParams}

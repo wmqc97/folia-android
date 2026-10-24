@@ -181,7 +181,14 @@ final class LocalAudioServer {
     private void handle(Socket socket) {
         try (Socket client = socket;
              BufferedInputStream input = new BufferedInputStream(client.getInputStream());
-             BufferedOutputStream output = new BufferedOutputStream(client.getOutputStream())) {
+             BufferedOutputStream output = new BufferedOutputStream(client.getOutputStream(), 64 * 1024)) {
+            try {
+                // 本地回环也走 Nagle 的话，小段 range 回包会被延迟合并；音频探测对这点延迟很敏感。
+                client.setTcpNoDelay(true);
+                client.setSendBufferSize(256 * 1024);
+            } catch (Exception ignored) {
+                // 个别 ROM 不允许改 send buffer，不影响功能。
+            }
             String requestLine = readLine(input);
             if (requestLine == null) return;
             String[] requestParts = requestLine.split(" ");
@@ -252,6 +259,12 @@ final class LocalAudioServer {
             }
             streamMediaStoreFile(output, requestParts, headers, token);
         } catch (Exception error) {
+            // <audio> 在探测/切歌时会主动 abort 连接，socket 写失败是正常现象。
+            // 这类错误只记一行 debug，不进崩溃诊断，否则每次切歌都往磁盘写一份。
+            if (isBenignStreamError(error)) {
+                Log.d(TAG, "audio stream closed by client: " + error.getMessage());
+                return;
+            }
             // 之前这里连日志都没有：流写到一半断掉，WebView 那边只会报一句
             // Format error，原生侧连发生了什么都不知道。
             Log.w(TAG, "audio request failed", error);
@@ -259,6 +272,18 @@ final class LocalAudioServer {
             // 不用再让用户去捞 logcat。
             CrashDiagnostics.record(context, "local-audio-server", "server", error);
         }
+    }
+
+    /** 客户端 abort 连接导致的写失败，不是服务端错误。 */
+    private static boolean isBenignStreamError(Throwable error) {
+        if (error instanceof java.net.SocketException) {
+            return true;
+        }
+        String message = error.getMessage();
+        return message != null
+            && (message.contains("Connection reset")
+                || message.contains("Broken pipe")
+                || message.contains("Socket closed"));
     }
 
     private void streamMediaStoreFile(
@@ -281,7 +306,22 @@ final class LocalAudioServer {
                 if (queriedMime != null && !queriedMime.isEmpty()) mime = queriedMime;
             }
         }
-        writeResponse(output, requestParts, headers, size, mime, () -> resolver.openInputStream(uri));
+        writeResponse(output, requestParts, headers, size, mime, () -> {
+            /*
+             * 用 openFileDescriptor 而不是 openInputStream：后者在部分 provider 上是管道，
+             * Range 请求里的 skipFully 会从头读一遍才能到 start；本地大 FLAC 每次 seek/探测
+             * 都要读几十 MB。AutoCloseInputStream 基于 fd，skip 走 lseek，直接定位。
+             */
+            try {
+                android.os.ParcelFileDescriptor descriptor = resolver.openFileDescriptor(uri, "r");
+                if (descriptor != null) {
+                    return new android.os.ParcelFileDescriptor.AutoCloseInputStream(descriptor);
+                }
+            } catch (Exception ignored) {
+                // provider 不支持 fd 时回退到普通输入流。
+            }
+            return resolver.openInputStream(uri);
+        });
     }
 
     private void streamImportedFile(

@@ -36,6 +36,7 @@ export CODEBUDDY_SAFE_DELETE_ENABLED=0
 if [ -z "${JAVA_HOME:-}" ]; then
   for candidate in \
     "/c/Program Files/Eclipse Adoptium/jdk-21.0.12.8-hotspot" \
+    "/f/Android/构建环境/JDK/jdk21" \
     "/d/Android/jdk17" ; do
     if [ -x "$candidate/bin/java" ] || [ -x "$candidate/bin/java.exe" ]; then
       export JAVA_HOME="$candidate"

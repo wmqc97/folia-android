@@ -77,6 +77,8 @@ export interface LumiereSceneOptions {
     audioAt?: (time: number) => LumiereAudioFrame;
     /** 统一覆盖整个单元的排版（不给则按各镜头光位的默认排版）。 */
     typography?: WindowTypography;
+    /** 背屏可读性适配：左内边距额外值（高度单位），把歌词推进可读区。 */
+    safeLeftInset?: number;
     /** 单元由几个段落无缝拼成时（轨迹过渡）各段落的范围：运镜按段落往返推拉，而不是整个单元推一次。 */
     sections?: LumiereSection[];
 }
@@ -220,7 +222,20 @@ export const createLumiereScene = (pixi: PixiModule, options: LumiereSceneOption
     lineArts.forEach(layer => lineArtHolder.addChild(layer.view));
     lineArtHolder.visible = tuning.lineArt;
     // 文字区（高度单位）：整个单元按领头光位排字，图标避开它。
-    const textRegion = { cx: lead.region.cx * aspect, cy: lead.region.cy, w: lead.region.w * aspect, h: lead.region.h };
+    // 背屏可读性适配（docs/背屏摄像头规避基准.md）：
+    //   屏幕可读区 = 98..347 CSS（左摄像头 98），渲染面 = 屏幕 + overscan 120，宽 587、高 452。
+    //   可读区在渲染面上是 218..467，中心 342.5 CSS。
+    //   lead.region.cx 是「相对 width 的宽度单位」，所以 rearCx = 342.5 / width。
+    //   （之前用 222.5/212 是错的：单位与 overscan 都错了，把歌词推到画面外。）
+    const safeLeftInset = options.safeLeftInset ?? 0;
+    const rearCx = safeLeftInset > 0
+        ? (120 + 98 + (347 - 98) / 2) / width  // = 342.5 / width ≈ 0.5835
+        : lead.region.cx;
+    // 背屏 band（渲染面坐标 / height）：左 (120+98)、右 (120+347)。
+    const rearBand = safeLeftInset > 0
+        ? { left: (120 + 98) / height, right: (120 + 347) / height }
+        : undefined;
+    const textRegion = { cx: rearCx * aspect, cy: lead.region.cy, w: lead.region.w * aspect, h: lead.region.h };
     // 主题图标：每个镜头一组（没有图标或开关关掉时一组都没有，不退回默认图标），独立于线稿开关。
     const iconArts: LineArtLayer[] = buildShotIconArts({
         icons: options.theme.lyricsIcons,
@@ -295,12 +310,16 @@ export const createLumiereScene = (pixi: PixiModule, options: LumiereSceneOption
         weight: resolveThemeFontWeight(options.theme, 500),
         resolution: options.resolution,
         region: {
-            cx: lead.region.cx * aspect,
+            cx: rearCx * aspect,
             cy: lead.region.cy,
             w: lead.region.w * aspect,
             h: lead.region.h,
         },
-        heroPx: lead.heroSize * height,
+        // 背屏「绘光」当前行字号：默认 38 CSS 太小，×3 又太大，取中间 ×1.6 ≈ 61 CSS。
+        // （band 修正后 fitScale 不再错误压缩，倍数就是真实字号放大。）
+        heroPx: lead.heroSize * height * (safeLeftInset > 0 ? 0.8 : 1),
+        bandOverride: rearBand,
+        forceHorizontal: safeLeftInset > 0,
         neighbors: tuning.windowNeighbors,
         typography: options.typography ?? lead.typography,
         typographyOf: options.typography ? undefined : typographyOfLine,
@@ -362,6 +381,8 @@ export const createLumiereScene = (pixi: PixiModule, options: LumiereSceneOption
     text.filters = tuning.textBloom > 0 ? [textBloom] : [];
 
     const lightHex = hexOf(palette.light);
+    // 运镜中心保持渲染面中心 width/2（不要偏移）：歌词靠 region.cx 定位到可读区，
+    // 运镜中心若也偏移会双重叠加把歌词推出画面。之前加的 cameraCenterXOffset 是错的，撤销。
     const rest: TransformParams = { x: width / 2, y: height / 2, pivotX: width / 2, pivotY: height / 2, scale: 1, rotation: 0 };
 
     /** 运镜：整个单元（轨迹过渡时按原段落往返）缓慢推近 + 平移，再叠持续的手持感浮动。只由 time 决定。 */

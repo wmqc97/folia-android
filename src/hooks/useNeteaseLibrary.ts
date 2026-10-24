@@ -1,3 +1,4 @@
+import { formatByteSize as formatBytes } from '../utils/formatByteSize';
 import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import {
     clearCache,
@@ -29,14 +30,6 @@ const NETEASE_USER_CACHE_KEYS = {
     playlists: getProviderCacheKey('netease', 'user_playlists'),
     likedSongs: getProviderCacheKey('netease', 'user_liked_songs'),
     cloudPlaylist: getProviderCacheKey('netease', 'user_cloud_playlist'),
-};
-
-const formatBytes = (bytes: number) => {
-    if (bytes === 0) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 };
 
 const getAllUserPlaylists = async (userId: MediaId): Promise<ProviderCollection[]> => {

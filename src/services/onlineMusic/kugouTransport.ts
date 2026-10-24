@@ -5,6 +5,10 @@ import {
     isFoliaExtensionBridgeConfigured,
     requestFoliaExtension,
 } from '../foliaExtensionBridge';
+// 原生协议后端（上游 0.7.21）：安卓 APK 没有 electron / 扩展桥 / 远端 API 时，
+// 直接在 WebView 里跑酷狗协议实现，请求经 FoliaBridge（OkHttp + CookieManager）发出。
+import { handleKugouEndpoint } from '../../audioNative/kugou';
+import { isNativeBridgeAvailable } from '../../audioNative/core';
 
 // src/services/onlineMusic/kugouTransport.ts
 
@@ -378,9 +382,46 @@ const persistBridgeAccountHint = (response: any): void => {
 export const getKugouTransportAvailability = () => {
     if (typeof window !== 'undefined' && window.electron?.kugouRequest) return { configured: true } as const;
     if (isFoliaExtensionBridgeConfigured(getWebApiBase())) return { configured: true } as const;
+    // 安卓 APK：原生协议层自带签名与 Cookie 罐，不依赖远端 API 服务。
+    if (isNativeBridgeAvailable()) return { configured: true } as const;
     return getWebApiBase()
         ? { configured: true } as const
         : { configured: false, reason: 'not-configured' as const };
+};
+
+/**
+ * 原生协议后端的一次请求：端点表 + 参数交给 audioNative/kugou.ts，签名与 Cookie 都在那一层。
+ */
+const requestKugouNativeOnce = async (operation: KugouOperation, params: KugouParams): Promise<any> => {
+    const query = new URLSearchParams();
+    Object.entries(params).forEach(([key, value]) => {
+        if (value !== undefined) query.set(key, String(value));
+    });
+    const cookie = getWebSessionCookie();
+    if (cookie) query.set('cookie', cookie);
+
+    const answer = await handleKugouEndpoint(`${ENDPOINTS[operation]}?${query}`);
+    const body = await answer.json();
+    if (!answer.ok) {
+        throw new OnlineProviderError(
+            KUGOU_AUTH_FAILURE_STATUSES.has(answer.status) ? 'auth-required' : 'network',
+            `KuGou native request failed: ${answer.status}`,
+            'kugou',
+            body,
+        );
+    }
+    persistWebSession(body);
+    return body?.body ?? body;
+};
+
+/** 原生协议后端：带设备校验重试，语义与远端后端一致。 */
+const executeNative = async (operation: KugouOperation, params: KugouParams): Promise<any> => {
+    let body = await requestKugouNativeOnce(operation, params);
+    if (operation !== 'register_dev' && isDeviceVerificationRequired(body)) {
+        await requestKugouNativeOnce('register_dev', {});
+        body = await requestKugouNativeOnce(operation, params);
+    }
+    return body;
 };
 
 // Routes one provider request through Electron IPC or an explicitly configured Web backend.
@@ -403,6 +444,11 @@ export const requestKugou = async <T = unknown>(operation: KugouOperation, param
 
     const base = getWebApiBase();
     if (!base) {
+        // 安卓 APK 的默认路径：没有 electron IPC、没有扩展桥、也没有远端 API 服务，
+        // 直接走上游原生协议层（FoliaBridge → OkHttp + CookieManager），参数原样交给它自己签名。
+        if (isNativeBridgeAvailable()) {
+            return await executeNative(operation, params) as T;
+        }
         throw new OnlineProviderError('unavailable', 'VITE_KUGOU_API_BASE is not configured', 'kugou');
     }
     if (isFoliaExtensionBridgeConfigured(base)) {

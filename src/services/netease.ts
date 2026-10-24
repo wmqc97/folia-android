@@ -6,6 +6,9 @@ import {
   isFoliaExtensionBridgeConfigured,
   requestFoliaExtension,
 } from './foliaExtensionBridge';
+// 原生协议后端（上游 0.7.21）：安卓 APK 没有扩展桥 / 远端 API 时，直接在 WebView 内跑 eapi/weapi。
+import { handleNeteaseEndpoint } from '../audioNative/netease';
+import { isNativeBridgeAvailable } from '../audioNative/core';
 
 type UnavailableSongReplacement = {
   replacementSong: SongResult;
@@ -132,6 +135,17 @@ const fetchWithCreds = async (endpoint: string, options: RequestInit = {}) => {
     if (extensionConfigured) {
       throw new Error(NETEASE_API_UNAVAILABLE);
     }
+  }
+
+  // 安卓 APK 的默认路径：没有配置远端 API、也没有扩展桥时，走上游原生协议层。
+  // 它自带 eapi/weapi 加密与 Cookie 罐，登录态与 providerStorage 共用同一批键。
+  if (!configuredApiBase && isNativeBridgeAvailable()) {
+    const nativeAnswer = await handleNeteaseEndpoint(endpoint);
+    const nativeBody = await nativeAnswer.json();
+    if (!nativeAnswer.ok) {
+      throw new Error(`NetEase native request ${endpoint.split('?')[0]} failed: HTTP ${nativeAnswer.status}`);
+    }
+    return nativeBody;
   }
 
   const base = await getApiBase();

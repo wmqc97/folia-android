@@ -5,6 +5,7 @@ import { DEFAULT_LUMIERE_TUNING } from '../../../types';
 import type { Line } from '../../../types';
 import { resolveThemeFontStack, resolveThemeFontWeight } from '../../../utils/fontStacks';
 import { getLineRenderEndTime } from '../../../utils/lyrics/renderHints';
+import { resolveRearRenderSurface } from '../../../utils/rearRenderSurface';
 import type { VisualizerSharedProps } from '../definition';
 import { useVisualizerPixiHost } from '../pixiRuntimeHost';
 import { useVisualizerRuntime } from '../runtime';
@@ -49,6 +50,14 @@ const VisualizerLumiere: React.FC<VisualizerSharedProps> = (props) => {
         lumiereTuning = DEFAULT_LUMIERE_TUNING,
     } = props;
     const { t } = useTranslation();
+
+    // 背屏可读性适配（docs/背屏摄像头规避基准.md）：
+    // 摄像头占左 98 CSS，歌词只能放 98..347 CSS。给 Pixi 运行时传左内边距额外值，
+    // 让 frameBand 把歌词推进可读区。只在背屏舞台 / 背屏样式预览（props.rearLayout）里启用；
+    // 主屏不启用，frameBand 与渲染中心保持主屏原样。
+    const isRearPage = resolveRearRenderSurface(props.rearLayout);
+    // 背屏开关（>0 = 背屏）：具体可读区坐标在 scene.ts 按 width/height 现算，不在这里写死。
+    const safeLeftInset = isRearPage ? 1 : 0;
     const hostRef = useRef<HTMLDivElement>(null);
     const [runtimeFailed, setRuntimeFailed] = useState(false);
 
@@ -108,6 +117,7 @@ const VisualizerLumiere: React.FC<VisualizerSharedProps> = (props) => {
                 showText: latest.showText,
                 paused: latest.paused,
                 metadata: metadataRef.current,
+                safeLeftInset,
                 signal,
             });
             const current = latestRef.current;
@@ -176,7 +186,7 @@ const VisualizerLumiere: React.FC<VisualizerSharedProps> = (props) => {
                             color: theme.primaryColor,
                             fontFamily: fallbackFontFamily,
                             fontWeight: fallbackFontWeight,
-                            fontSize: `clamp(${(2 * lyricsFontScale).toFixed(3)}rem, ${(5.4 * lyricsFontScale).toFixed(3)}vw, ${(5.6 * lyricsFontScale).toFixed(3)}rem)`,
+                            fontSize: `clamp(2rem, ${(5.4 * lyricsFontScale).toFixed(3)}vw, 5.6rem)`,
                         }}
                     >
                         {showText && !committedSong.isInstrumental ? (activeLine?.fullText || t('ui.waitingForMusic')) : null}

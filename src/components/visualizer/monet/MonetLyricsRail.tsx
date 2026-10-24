@@ -35,6 +35,8 @@ interface MonetLyricsRailProps {
     seekDisabled?: boolean;
     /** Shared large-screen factor. Owned by VisualizerMonet so the column and the font scale together. */
     layoutScale?: number;
+    /** 当前行在 rail 里的垂直位置（0..1）；背屏三行居中传 0.5。 */
+    focusCenterFraction?: number;
 }
 
 const MonetLyricsRail: React.FC<MonetLyricsRailProps> = ({
@@ -57,6 +59,7 @@ const MonetLyricsRail: React.FC<MonetLyricsRailProps> = ({
     onLyricLineSeek,
     seekDisabled = false,
     layoutScale = 1,
+    focusCenterFraction = 0.46,
 }) => {
     const railRef = useRef<HTMLDivElement | null>(null);
     const layoutCacheRef = useRef<MonetLayoutCache>(new Map());
@@ -119,6 +122,7 @@ const MonetLyricsRail: React.FC<MonetLyricsRailProps> = ({
                 },
                 glowBufferPx,
                 layoutCacheRef.current,
+                focusCenterFraction,
             );
         },
         [visibleEntries, railSize, theme, lyricFontPx, inactiveFontPx, translationFontPx, fontStack, translationFontStack, lyricFontWeight, translationFontWeight, secondaryTranslationFontWeight, glowBufferPx, subtitleContentMode, fontsEpoch],

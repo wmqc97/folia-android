@@ -65,11 +65,14 @@ export interface LumiereCameraOptions {
     endTime: number;
     sections?: readonly LumiereSection[];
     animationIntensity?: Theme['animationIntensity'];
+    /** 背屏可读性适配：非 0 时把运镜的水平中心右移到可读区中心（默认 0 = 屏幕中心）。 */
+    centerXOffset?: number;
 }
 
 /** 运镜：缓慢推近 + 平移（两端缓入缓出，见 resolveLumiereCameraProgress），再叠持续的手持感浮动。只由 time 决定。 */
 export const createLumiereCamera = (options: LumiereCameraOptions) => {
     const { width, height, camera } = options;
+    const centerXOffset = options.centerXOffset ?? 0;
     const motion = options.animationIntensity === 'calm' ? 0.6 : options.animationIntensity === 'chaotic' ? 1.4 : 1;
     const span = { startTime: options.startTime, endTime: options.endTime };
     return (time: number): TransformParams => {
@@ -77,9 +80,9 @@ export const createLumiereCamera = (options: LumiereCameraOptions) => {
         const floatX = (Math.sin(time * 0.21 + 0.4) * 0.6 + Math.sin(time * 0.53 + 1.9) * 0.4) * 0.006 * motion;
         const floatY = (Math.cos(time * 0.17 + 1.1) * 0.6 + Math.sin(time * 0.47 + 0.3) * 0.4) * 0.006 * motion;
         return {
-            x: width / 2 + (camera.driftX * progress + floatX) * width,
+            x: width / 2 + centerXOffset + (camera.driftX * progress + floatX) * width,
             y: height / 2 + (camera.driftY * progress + floatY) * height,
-            pivotX: width / 2,
+            pivotX: width / 2 + centerXOffset,
             pivotY: height / 2,
             scale: (1 + camera.push * progress) * (1 + 0.008 * motion * Math.sin(time * 0.31 + 0.7)),
             rotation: 0.004 * motion * Math.sin(time * 0.13 + 2.1),

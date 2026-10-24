@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=347, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>背屏摄像头规避区域测试</title>
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 100vw;
+    height: 100vh;
+    overflow: hidden;
+    background: #0a0a0f;
+    color: #fff;
+    font-family: "Noto Sans SC", -apple-system, sans-serif;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    box-sizing: border-box;
+    position: relative;
+  }
+  .band {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 9px;
+    text-align: center;
+    line-height: 1.4;
+  }
+  .cam {
+    left: 0;
+    width: 28.24%; /* 98 / 347 */
+    background: repeating-linear-gradient(45deg, rgba(255,80,80,0.35) 0 4px, rgba(255,80,80,0.15) 4px 8px);
+    border-right: 1px dashed #ff5555;
+    color: #ff8888;
+  }
+  .safe {
+    left: 28.24%;
+    width: 71.76%; /* 249 / 347 */
+    background: repeating-linear-gradient(45deg, rgba(80,255,120,0.18) 0 4px, rgba(80,255,120,0.08) 4px 8px);
+    border-left: 1px dashed #55ff77;
+    border-right: 1px dashed #55ff77;
+    color: #88ffaa;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .center {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background: #ffd23a;
+    box-shadow: 0 0 6px #ffd23a;
+  }
+  .centerLabel {
+    position: absolute;
+    top: 3px;
+    transform: translateX(-50%);
+    color: #ffd23a;
+    font-size: 8px;
+    background: rgba(0,0,0,0.75);
+    padding: 1px 3px;
+    border-radius: 2px;
+    white-space: nowrap;
+  }
+  .sway {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background: rgba(255,180,60,0.7);
+    border-left: 1px dashed rgba(255,180,60,0.7);
+  }
+  .swayLabel {
+    position: absolute;
+    bottom: 3px;
+    transform: translateX(-50%);
+    color: #ffb440;
+    font-size: 7px;
+    background: rgba(0,0,0,0.75);
+    padding: 0 2px;
+    border-radius: 2px;
+    white-space: nowrap;
+  }
+  .demo {
+    position: absolute;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 18px;
+    font-weight: 700;
+    color: #fff;
+    text-shadow: 0 2px 8px rgba(0,0,0,0.9);
+    white-space: nowrap;
+    pointer-events: none;
+  }
+  .demo .dot {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #ffd23a;
+    vertical-align: middle;
+    margin: 0 3px;
+    box-shadow: 0 0 6px #ffd23a;
+  }
+  .hud {
+    position: absolute;
+    left: 3px;
+    bottom: 3px;
+    right: 3px;
+    font-size: 7px;
+    color: rgba(255,255,255,0.9);
+    background: rgba(0,0,0,0.6);
+    padding: 2px 4px;
+    border-radius: 3px;
+    line-height: 1.4;
+    pointer-events: none;
+  }
+  .toggles {
+    position: absolute;
+    right: 3px;
+    top: 3px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    z-index: 10;
+  }
+  .toggles button {
+    font-size: 7px;
+    padding: 2px 5px;
+    border: 1px solid rgba(255,255,255,0.35);
+    border-radius: 3px;
+    background: rgba(0,0,0,0.5);
+    color: #fff;
+    cursor: pointer;
+  }
+  .toggles button.on {
+    background: #ffd23a;
+    color: #000;
+    border-color: #ffd23a;
+  }
+</style>
+</head>
+<body>
+  <div class="band cam" id="camBand">
+    摄像头占用<br>0..98 CSS<br>0..277 物理
+  </div>
+  <div class="band safe">
+    <div>可读区 98..347 CSS</div>
+    <div>277..976 物理</div>
+    <div>中心 X=222.5 CSS</div>
+    <div>626.5 物理</div>
+  </div>
+  <div class="center" id="centerLine"></div>
+  <div class="centerLabel" id="centerLabel">目标 222.5</div>
+  <div class="sway" id="swayL"></div>
+  <div class="swayLabel" id="swayLLabel">-22.5</div>
+  <div class="sway" id="swayR"></div>
+  <div class="swayLabel" id="swayRLabel">+22.5</div>
+  <div class="demo" id="demo"><span class="dot"></span>歌词焦点<span class="dot"></span></div>
+  <div class="hud" id="hud">加载中…</div>
+  <div class="toggles">
+    <button id="btnSway" class="on">摆动</button>
+    <button id="btnSway2">大摆动</button>
+    <button id="btnCam" class="on">摄像头区</button>
+    <button id="btnSnap">闪白</button>
+  </div>
+<script>
+(function () {
+  // 单位换算：物理 = CSS * 2.8125（density 450 / base 160）。
+  var DPR = 2.8125;
+  var SCREEN_CSS_W = 347;
+  var CAM_CSS = 98;
+  var SAFE_LEFT_CSS = 98;
+  var SAFE_RIGHT_CSS = 347;
+  var SAFE_CENTER_CSS = 222.5;
+  var SWAY_CSS = 22.5;
+
+  // 百分比参考：100vw = 347 CSS（viewport width=347）。
+  function pct(cssX) {
+    return (cssX / SCREEN_CSS_W * 100) + '%';
+  }
+
+  var demo = document.getElementById('demo');
+  var hud = document.getElementById('hud');
+  var centerLine = document.getElementById('centerLine');
+  var centerLabel = document.getElementById('centerLabel');
+  var swayL = document.getElementById('swayL');
+  var swayR = document.getElementById('swayR');
+  var swayLLabel = document.getElementById('swayLLabel');
+  var swayRLabel = document.getElementById('swayRLabel');
+
+  var t = 0;
+  var swayEnabled = true;
+  var swayAmp = SWAY_CSS;
+
+  function fmt(x) { return x.toFixed(1); }
+
+  function positionMarkers() {
+    centerLine.style.left = pct(SAFE_CENTER_CSS);
+    centerLabel.style.left = pct(SAFE_CENTER_CSS);
+    swayL.style.left = pct(SAFE_CENTER_CSS - swayAmp);
+    swayR.style.left = pct(SAFE_CENTER_CSS + swayAmp);
+    swayLLabel.style.left = pct(SAFE_CENTER_CSS - swayAmp);
+    swayRLabel.style.left = pct(SAFE_CENTER_CSS + swayAmp);
+    swayLLabel.textContent = '-' + fmt(swayAmp);
+    swayRLabel.textContent = '+' + fmt(swayAmp);
+  }
+  positionMarkers();
+
+  function frame() {
+    t += 0.016;
+    var x = SAFE_CENTER_CSS + (swayEnabled ? Math.sin(t * 0.6) * swayAmp : 0);
+    demo.style.left = pct(x);
+
+    var out = x < SAFE_LEFT_CSS || x > SAFE_RIGHT_CSS;
+    document.body.style.background = out ? '#5a0a0a' : '#0a0a0f';
+
+    hud.innerHTML =
+      'X = <b>' + fmt(x) + '</b> CSS / <b>' + fmt(x * DPR) + '</b> 物理 &nbsp;|&nbsp; ' +
+      '目标 <b>' + fmt(SAFE_CENTER_CSS) + '</b> / <b>' + fmt(SAFE_CENTER_CSS * DPR) + '</b> &nbsp;|&nbsp; ' +
+      '摆 <b>±' + fmt(swayAmp) + '</b> / <b>±' + fmt(swayAmp * DPR) + '</b> &nbsp;|&nbsp; ' +
+      (out ? '<b style="color:#ff8888">越界</b>' : '<b style="color:#88ffaa">安全</b>');
+
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+
+  var btnSway = document.getElementById('btnSway');
+  var btnSway2 = document.getElementById('btnSway2');
+  var btnCam = document.getElementById('btnCam');
+  var btnSnap = document.getElementById('btnSnap');
+
+  btnSway.addEventListener('click', function () {
+    swayEnabled = !swayEnabled;
+    swayAmp = SWAY_CSS;
+    btnSway.classList.toggle('on', swayEnabled);
+    btnSway2.classList.remove('on');
+    positionMarkers();
+  });
+  btnSway2.addEventListener('click', function () {
+    swayEnabled = true;
+    swayAmp = SWAY_CSS * 2.5;
+    btnSway2.classList.add('on');
+    btnSway.classList.remove('on');
+    positionMarkers();
+  });
+  btnCam.addEventListener('click', function () {
+    var band = document.getElementById('camBand');
+    var visible = band.style.display !== 'none';
+    band.style.display = visible ? 'none' : '';
+    btnCam.classList.toggle('on', !visible);
+  });
+  btnSnap.addEventListener('click', function () {
+    document.body.style.background = '#ffffff';
+    setTimeout(function () {
+      document.body.style.background = swayEnabled ? '#0a0a0f' : '#0a0a0f';
+    }, 120);
+  });
+
+  var dragging = false;
+  document.addEventListener('touchstart', function (e) {
+    if (e.target.closest('button')) return;
+    dragging = true;
+    moveDemo(e.touches[0].clientX);
+  });
+  document.addEventListener('touchmove', function (e) {
+    if (!dragging) return;
+    moveDemo(e.touches[0].clientX);
+  });
+  document.addEventListener('touchend', function () { dragging = false; });
+
+  function moveDemo(clientX) {
+    var rect = document.body.getBoundingClientRect();
+    var vw = rect.width || 347;
+    var cssX = clientX / vw * SCREEN_CSS_W;
+    cssX = Math.max(0, Math.min(SCREEN_CSS_W, cssX));
+    demo.style.left = pct(cssX);
+    centerLine.style.left = pct(cssX);
+    centerLabel.style.left = pct(cssX);
+    centerLabel.textContent = '手动 ' + fmt(cssX);
+  }
+})();
+</script>
+</body>
+</html>

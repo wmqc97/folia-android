@@ -184,6 +184,8 @@ export const buildPositionedEntries = (
     layoutInputs: Omit<MonetLineLayoutInputs, 'fontPx' | 'maxWidthPx'>,
     glowBufferPx: number,
     layoutCache: MonetLayoutCache,
+    /** 当前行在 rail 里的垂直位置（0..1）。默认 0.46 给底部字幕留空间；背屏三行居中传 0.5。 */
+    focusCenterFraction = 0.46,
 ): PositionedMonetLineEntry[] => {
     const railWidth = railSize.width || MONET_RAIL_WIDTH_FALLBACK_PX;
     const railHeight = railSize.height || MONET_RAIL_HEIGHT_FALLBACK_PX;
@@ -216,7 +218,7 @@ export const buildPositionedEntries = (
     }
 
     const anchorIndex = Math.max(0, measuredEntries.findIndex(entry => entry.offset === 0));
-    const focusCenterY = railHeight * 0.46;
+    const focusCenterY = railHeight * focusCenterFraction;
     measuredEntries[anchorIndex].y = focusCenterY - measuredEntries[anchorIndex].scaledHeight / 2;
 
     for (let index = anchorIndex + 1; index < measuredEntries.length; index += 1) {

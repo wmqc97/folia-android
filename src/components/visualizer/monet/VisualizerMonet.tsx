@@ -9,6 +9,7 @@ import { type VisualizerSharedProps } from '../definition';
 import { useVisualizerRuntime } from '../runtime';
 import VisualizerShell from '../VisualizerShell';
 import { getLineRenderEndTime } from '../../../utils/lyrics/renderHints';
+import { resolveRearRenderSurface } from '../../../utils/rearRenderSurface';
 import { resolveThemeFontStack, resolveThemeTranslationFontStack } from '../../../utils/fontStacks';
 import { resolveSubtitleContentMode } from '../../../utils/lyrics/alternateText';
 import AudioOverlay from './AudioOverlay';
@@ -92,9 +93,13 @@ const VisualizerMonet: React.FC<VisualizerMonetProps> = (props) => {
 
     const songIdentifier = seed ?? songTitle ?? '';
 
-    useEffect(() => {
+    // 换歌在同一帧重挂海报，不放 effect：effect 在 commit 之后跑，新歌的文字会先在旧节点上
+    // 画一帧再重挂，看起来就是闪一下。主屏原版的写法。
+    const [introSong, setIntroSong] = useState(songIdentifier);
+    if (introSong !== songIdentifier) {
+        setIntroSong(songIdentifier);
         setIntroKey(prev => prev + 1);
-    }, [songIdentifier]);
+    }
 
     const {
         activeLine,
@@ -108,6 +113,10 @@ const VisualizerMonet: React.FC<VisualizerMonetProps> = (props) => {
         getLineEndTime: getLineRenderEndTime,
     });
 
+    // 背屏可读性适配（docs/背屏摄像头规避基准.md）：只显示三行，当前行在第二行。
+    // 只在背屏舞台 / 背屏样式预览里成立（props.rearLayout），主屏恒为主屏版式。
+    const isRearPage = resolveRearRenderSurface(props.rearLayout);
+
     const visibleLineEntries = useMemo(() => buildMonetVisibleLineEntries({
         lines,
         currentLineIndex,
@@ -115,8 +124,8 @@ const VisualizerMonet: React.FC<VisualizerMonetProps> = (props) => {
         recentCompletedLine,
         upcomingLine,
         currentTime: currentTimeValue,
-        before: 2,
-        after: 2,
+        before: isRearPage ? 1 : 2,
+        after: isRearPage ? 1 : 2,
     }), [
         activeLine,
         currentLineIndex,
@@ -195,7 +204,12 @@ const VisualizerMonet: React.FC<VisualizerMonetProps> = (props) => {
                     style={{ maxWidth: `${rowMaxWidthPx}px` }}
                 >
                     {showText && (
-                        <div className="flex min-h-0 min-w-0 flex-1 flex-col justify-center px-5 py-5 sm:px-8 sm:py-6 lg:px-14 lg:py-8 2xl:px-20">
+                        <div
+                            className="flex min-h-0 min-w-0 flex-1 flex-col justify-center px-5 py-5 sm:px-8 sm:py-6 lg:px-14 lg:py-8 2xl:px-20"
+                            // 背屏渲染面 587 宽，overscan 120；可读区屏幕 98 = 渲染面 218。
+                            style={isRearPage ? { paddingLeft: 218, paddingRight: 0 } : undefined}
+                        >
+                            {!isRearPage && (
                             <div className="mb-3 space-y-1.5" style={{ maxWidth: headerMaxWidth }}>
                                 <motion.div
                                     key={`artist-${introKey}`}
@@ -223,7 +237,9 @@ const VisualizerMonet: React.FC<VisualizerMonetProps> = (props) => {
                                     }}
                                 />
                             </div>
+                            )}
 
+                            {!isRearPage && (
                             <motion.div
                                 key={`title-${introKey}`}
                                 initial={{ opacity: 0, x: -40 }}
@@ -263,6 +279,7 @@ const VisualizerMonet: React.FC<VisualizerMonetProps> = (props) => {
                                     </div>
                                 </div>
                             </motion.div>
+                            )}
 
                             <motion.div
                                 key={`rail-${introKey}`}
@@ -290,10 +307,11 @@ const VisualizerMonet: React.FC<VisualizerMonetProps> = (props) => {
                                     onLyricLineSeek={onLyricLineSeek}
                                     seekDisabled={isPreviewMode}
                                     layoutScale={largeScreenScale}
+                                    focusCenterFraction={isRearPage ? 0.5 : 0.46}
                                 />
                             </motion.div>
 
-                            {monetTuning.showDescription && (
+                            {!isRearPage && monetTuning.showDescription && (
                                 <motion.div
                                     key={`desc-${introKey}`}
                                     initial={{ opacity: 0, scale: 0.9, y: 10 }}
@@ -519,8 +537,12 @@ const VisualizerMonet: React.FC<VisualizerMonetProps> = (props) => {
                     initial={{ opacity: 0, y: 15 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 1.2, ease: [0.25, 1, 0.5, 1], delay: 0.8 }}
-                    className="absolute bottom-0 left-0 z-20 h-10 overflow-hidden px-5 sm:px-8 lg:px-14"
-                    style={{ width: 'min(450px, 55vw)' }}
+                    className="absolute z-20 h-10 overflow-hidden"
+                    // 背屏：bottom 120 让频谱底部对齐屏幕底部（渲染面 452 - 120 = 332 = 屏幕 212）。
+                    // 渲染面比可视区高 overscan 120，bottom-0 会落在屏幕下方看不到。
+                    style={isRearPage
+                        ? { left: 218, width: 249, bottom: 120 }
+                        : { left: 0, bottom: 0, width: 'min(450px, 55vw)' }}
                 >
                     <div className="h-full w-full">
                         <AudioOverlay

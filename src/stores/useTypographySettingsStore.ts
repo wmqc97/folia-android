@@ -72,6 +72,18 @@ export const REAR_LYRICS_FONT_SCALE_STORAGE_KEY = 'rear_lyrics_font_scale';
  * 这两个值只作用于背屏，主界面完全不受影响。
  */
 export const REAR_LYRICS_FRAME_STORAGE_KEY = 'rear_lyrics_frame';
+/** 镜台（diorama）渲染中心一次性校正：旧默认 +38 改到 173.5 内容中心。 */
+const REAR_DIORAMA_CENTER_MIGRATION_KEY = 'rear_diorama_center_v1';
+/** 炫光（lumiere）渲染中心/字号一次性校正：缩放归 1 后内容中心 173.5 → 228，字号 1.6 → 2。 */
+const REAR_LUMIERE_CENTER_MIGRATION_KEY = 'rear_lumiere_center_v1';
+/** 全样式出厂默认一次性迁移：缩放归 1、渲染中心归 55、字号等比放大。 */
+const REAR_ALL_MIGRATION_KEY = 'rear_all_defaults_v1';
+/** 炫光渲染中心回归 0：上一版把 centerOffsetX 误迁到 55，与 scene.ts 的 rearCx 双重偏移。 */
+const REAR_LUMIERE_CENTER_V2_MIGRATION_KEY = 'rear_lumiere_center_v2';
+/** 用户真机导出 JSON 的完整出厂默认：把所有样式 frame 完整覆盖为导出值。 */
+const REAR_ALL_MIGRATION_V2_KEY = 'rear_all_defaults_v2';
+/** 第二次真机导出（15:26）的完整出厂默认：覆盖 tempera/partita/monet 等样式的新调教值。 */
+const REAR_ALL_MIGRATION_V3_KEY = 'rear_all_defaults_v3';
 
 /** 单个效果的构图微调。 */
 export interface RearLyricsFrameValue {
@@ -116,7 +128,7 @@ export const REAR_LYRICS_FRAME_EFFECT_SCALE_MIN = 0.4;
 export const REAR_LYRICS_FRAME_EFFECT_SCALE_MAX = 1.6;
 /** 单个效果的字号倍率范围。比全局倍率收窄：它是在全局倍率之上再叠一档微调。 */
 export const REAR_LYRICS_FRAME_FONT_SCALE_MIN = 0.4;
-export const REAR_LYRICS_FRAME_FONT_SCALE_MAX = 1.6;
+export const REAR_LYRICS_FRAME_FONT_SCALE_MAX = 2;
 
 /**
  * 出厂构图：画布从屏幕 0 开始，渲染中心落在可见区中心，效果按可见区宽度自适应。
@@ -145,21 +157,25 @@ export const DEFAULT_REAR_LYRICS_FRAME: RearLyricsFrameValue = {
  * <p>效果缩放出厂不再统一 1x，而是按真机调好的值走；需要重置时点该样式的「默认」。
  * 渲染中心只负责内容偏移，不参与画布、歌词画布、样式画布的位置和大小。
  */
+/*
+ * 出厂默认 = 用户真机导出的背屏样式参数（2026-10-22 15:26 导出 JSON）。
+ * 各样式按背屏实际显示效果单独调过 centerOffset / fontScale / effectScale。
+ */
 export const BUILTIN_REAR_LYRICS_FRAME_OVERRIDES: Readonly<Record<string, Partial<RearLyricsFrameValue>>> = {
-    tilt: { canvasX: 0, canvasY: 0, centerOffsetX: 41, centerOffsetY: 0, fontScale: 0.85, effectScaleX: 1, effectScaleY: 1 },
-    pendolo: { canvasX: 0, canvasY: 0, centerOffsetX: 29, centerOffsetY: 8, fontScale: 0.85, effectScaleX: 1, effectScaleY: 1 },
-    still: { canvasX: 40, canvasY: 34, centerOffsetX: 0, centerOffsetY: 0, fontScale: 0.95, effectScaleX: 1, effectScaleY: 1 },
-    sonnet: { canvasX: 0, canvasY: 0, centerOffsetX: 0, centerOffsetY: 0, fontScale: 0.8, effectScaleX: 1, effectScaleY: 1 },
-    tempera: { canvasX: 0, canvasY: 0, centerOffsetX: 32, centerOffsetY: 0, fontScale: 0.7, effectScaleX: 1, effectScaleY: 1 },
-    lumiere: { canvasX: 0, canvasY: 0, centerOffsetX: 83, centerOffsetY: 13, fontScale: 1.6, effectScaleX: 0.8, effectScaleY: 0.74 },
-    classic: { canvasX: 0, canvasY: 0, centerOffsetX: 62, centerOffsetY: 21, fontScale: 0.6, effectScaleX: 0.9, effectScaleY: 0.9 },
-    cadenza: { canvasX: 0, canvasY: 0, centerOffsetX: 120, centerOffsetY: 34, fontScale: 0.75, effectScaleX: 1, effectScaleY: 0.9 },
-    partita: { canvasX: 101, canvasY: -2, centerOffsetX: 17, centerOffsetY: 6, fontScale: 0.5, effectScaleX: 0.79, effectScaleY: 1 },
-    fume: { canvasX: 0, canvasY: 0, centerOffsetX: 19, centerOffsetY: 0, fontScale: 0.5, effectScaleX: 0.8, effectScaleY: 0.81 },
-    claddagh: { canvasX: 0, canvasY: 0, centerOffsetX: 19, centerOffsetY: 0, fontScale: 0.6, effectScaleX: 0.9, effectScaleY: 0.9 },
-    monet: { canvasX: 60, canvasY: 0, centerOffsetX: 116, centerOffsetY: 0, fontScale: 1.15, effectScaleX: 0.65, effectScaleY: 0.63 },
-    cappella: { canvasX: 53, canvasY: 0, centerOffsetX: -73, centerOffsetY: 0, fontScale: 0.65, effectScaleX: 0.65, effectScaleY: 0.65 },
-    diorama: { canvasX: 0, canvasY: 0, centerOffsetX: 38, centerOffsetY: -31, fontScale: 0.8, effectScaleX: 0.9, effectScaleY: 1 },
+    tilt: { canvasX: 0, canvasY: 0, centerOffsetX: 49, centerOffsetY: 0, fontScale: 0.75, effectScaleX: 1, effectScaleY: 1 },
+    pendolo: { canvasX: 0, canvasY: 0, centerOffsetX: 22, centerOffsetY: 0, fontScale: 0.7, effectScaleX: 1, effectScaleY: 1 },
+    sonnet: { canvasX: 0, canvasY: 0, centerOffsetX: 38, centerOffsetY: 0, fontScale: 0.45, effectScaleX: 1, effectScaleY: 1 },
+    tempera: { canvasX: 0, canvasY: 0, centerOffsetX: 64, centerOffsetY: 0, fontScale: 0.7, effectScaleX: 1, effectScaleY: 1 },
+    classic: { canvasX: 0, canvasY: 0, centerOffsetX: 35, centerOffsetY: 0, fontScale: 0.45, effectScaleX: 1, effectScaleY: 1 },
+    cadenza: { canvasX: 0, canvasY: 0, centerOffsetX: 120, centerOffsetY: 34, fontScale: 0.8, effectScaleX: 1, effectScaleY: 1 },
+    partita: { canvasX: 0, canvasY: 0, centerOffsetX: 120, centerOffsetY: 11, fontScale: 0.4, effectScaleX: 0.66, effectScaleY: 0.9 },
+    fume: { canvasX: 0, canvasY: 0, centerOffsetX: 55, centerOffsetY: 0, fontScale: 0.65, effectScaleX: 1, effectScaleY: 1 },
+    monet: { canvasX: 47, canvasY: 0, centerOffsetX: -34, centerOffsetY: 0, fontScale: 0.9, effectScaleX: 1, effectScaleY: 1 },
+    cappella: { canvasX: 53, canvasY: 0, centerOffsetX: 55, centerOffsetY: 0, fontScale: 1.3, effectScaleX: 1, effectScaleY: 1 },
+    diorama: { canvasX: 0, canvasY: 0, centerOffsetX: -43, centerOffsetY: -31, fontScale: 0.95, effectScaleX: 1, effectScaleY: 1 },
+    lumiere: { canvasX: 0, canvasY: 0, centerOffsetX: 0, centerOffsetY: 0, fontScale: 1.4, effectScaleX: 1, effectScaleY: 1 },
+    claddagh: { canvasX: 0, canvasY: 0, centerOffsetX: 31, centerOffsetY: 0, fontScale: 0.6, effectScaleX: 1, effectScaleY: 1 },
+    still: { canvasX: 0, canvasY: 0, centerOffsetX: 55, centerOffsetY: 34, fontScale: 0.9, effectScaleX: 1, effectScaleY: 1 },
 };
 
 /**
@@ -296,6 +312,117 @@ export const readStoredRearLyricsFrames = (): Record<string, RearLyricsFrameValu
             if (value && typeof value === 'object') {
                 frames[mode] = clampRearLyricsFrame(value as Partial<RearLyricsFrameValue>);
             }
+        }
+        /*
+         * 撤销上一版误改的 still 渲染中心：如果之前被写成 -40，回到 0。
+         * 只处理这个特定值，用户自己调过的其他值不动。
+         */
+        if (frames.still
+            && frames.still.canvasX === 40
+            && frames.still.centerOffsetX === -40
+            && localStorage.getItem('rear_still_center_v2') === '1') {
+            frames.still = { ...frames.still, centerOffsetX: 0 };
+            localStorage.removeItem('rear_still_center_v2');
+            localStorage.setItem(REAR_LYRICS_FRAME_STORAGE_KEY, JSON.stringify(frames));
+        }
+        /*
+         * 镜台（diorama）旧默认 centerOffsetX 38，内容中心落在 211.5；
+         * 现在改为 0，内容中心 173.5，正好是摄像头右侧剩余区域的正中。
+         * 只动渲染中心，画布 X/Y、字号、效果缩放都不变。
+         */
+        if (frames.diorama
+            && frames.diorama.canvasX === 0
+            && frames.diorama.centerOffsetX === 38
+            && localStorage.getItem(REAR_DIORAMA_CENTER_MIGRATION_KEY) !== '1') {
+            frames.diorama = { ...frames.diorama, centerOffsetX: 0 };
+            localStorage.setItem(REAR_LYRICS_FRAME_STORAGE_KEY, JSON.stringify(frames));
+            localStorage.setItem(REAR_DIORAMA_CENTER_MIGRATION_KEY, '1');
+        }
+        /*
+         * 炫光（lumiere）旧默认是 centerOffsetX 83 + fontScale 1.6 + effectScaleX 0.8 + effectScaleY 0.74。
+         * 用户已把缩放 X/Y 归 1：内容中心回到 173.5，字变小。校正：
+         *   centerOffsetX 83 → 55（可读区中心 228，+15 物理）
+         *   fontScale 1.6 → 2（补回缩放归 1 后变小的字号，上限已调到 2）
+         * 只对旧组合迁移一次，用户之后自己调的值不动。
+         */
+        if (frames.lumiere
+            && frames.lumiere.centerOffsetX === 83
+            && Math.abs(frames.lumiere.fontScale - 1.6) < 0.001
+            && localStorage.getItem(REAR_LUMIERE_CENTER_MIGRATION_KEY) !== '1') {
+            frames.lumiere = { ...frames.lumiere, centerOffsetX: 55, fontScale: 2 };
+            localStorage.setItem(REAR_LYRICS_FRAME_STORAGE_KEY, JSON.stringify(frames));
+            localStorage.setItem(REAR_LUMIERE_CENTER_MIGRATION_KEY, '1');
+        }
+        /*
+         * 全样式出厂默认迁移（只跑一次，用户之后调的值不动）：
+         * 旧默认里 effectScaleX/Y 是 0.65~1.6，内容中心在屏幕中心 173.5（canvasX 0 时）。
+         * 现在统一：
+         *   - 缩放 X/Y 归 1；
+         *   - 渲染中心 X 归 55（可读区中心 228 = 222.5 + 15 物理）；
+         *   - 字号等比放大，补回缩放归 1 后变小的视觉。
+         * 只对 effectScaleX/Y 都不是 1 的旧值迁移，避免反复覆盖用户调好的值。
+         */
+        // 用户反馈字体太小，强制放大到出厂默认（只跑一次）。
+        // 炫光渲染中心 X 回归 0：之前迁到 55，与 scene.ts rearCx 双重偏移导致歌词偏右。
+        if (frames.lumiere
+            && frames.lumiere.centerOffsetX === 55
+            && localStorage.getItem(REAR_LUMIERE_CENTER_V2_MIGRATION_KEY) !== '1') {
+            frames.lumiere = { ...frames.lumiere, centerOffsetX: 0 };
+            localStorage.setItem(REAR_LYRICS_FRAME_STORAGE_KEY, JSON.stringify(frames));
+            localStorage.setItem(REAR_LUMIERE_CENTER_V2_MIGRATION_KEY, '1');
+        }
+        if (localStorage.getItem(REAR_ALL_MIGRATION_KEY) !== '1') {
+            for (const [mode, value] of Object.entries(frames)) {
+                const builtin = BUILTIN_REAR_LYRICS_FRAME_OVERRIDES[mode];
+                if (!builtin) continue;
+                frames[mode] = {
+                    ...value,
+                    centerOffsetX: builtin.centerOffsetX ?? 55,
+                    effectScaleX: 1,
+                    effectScaleY: 1,
+                    fontScale: builtin.fontScale ?? value.fontScale,
+                };
+            }
+            localStorage.setItem(REAR_LYRICS_FRAME_STORAGE_KEY, JSON.stringify(frames));
+            localStorage.setItem(REAR_ALL_MIGRATION_KEY, '1');
+        }
+        /*
+         * 最终出厂默认：用户真机导出的完整 JSON（2026-10-22 14:24）。
+         * 完整覆盖所有样式的 7 个字段，让已经跑过旧迁移的设备也回到这份基准。
+         * 只跑一次；之后用户在面板里自己调的值以用户为准，不再覆盖。
+         */
+        if (localStorage.getItem(REAR_ALL_MIGRATION_V2_KEY) !== '1') {
+            for (const [mode, builtin] of Object.entries(BUILTIN_REAR_LYRICS_FRAME_OVERRIDES)) {
+                const existing = frames[mode] ?? ({} as Partial<RearLyricsFrameValue>);
+                frames[mode] = {
+                    canvasX: builtin.canvasX ?? existing.canvasX ?? 0,
+                    canvasY: builtin.canvasY ?? existing.canvasY ?? 0,
+                    centerOffsetX: builtin.centerOffsetX ?? existing.centerOffsetX ?? 0,
+                    centerOffsetY: builtin.centerOffsetY ?? existing.centerOffsetY ?? 0,
+                    fontScale: builtin.fontScale ?? existing.fontScale ?? 1,
+                    effectScaleX: builtin.effectScaleX ?? existing.effectScaleX ?? 1,
+                    effectScaleY: builtin.effectScaleY ?? existing.effectScaleY ?? 1,
+                };
+            }
+            localStorage.setItem(REAR_LYRICS_FRAME_STORAGE_KEY, JSON.stringify(frames));
+            localStorage.setItem(REAR_ALL_MIGRATION_V2_KEY, '1');
+        }
+        // 第三次真机导出（15:26）：完整覆盖为新调教值（tempera/partita/monet 等变了）。
+        if (localStorage.getItem(REAR_ALL_MIGRATION_V3_KEY) !== '1') {
+            for (const [mode, builtin] of Object.entries(BUILTIN_REAR_LYRICS_FRAME_OVERRIDES)) {
+                const existing = frames[mode] ?? ({} as Partial<RearLyricsFrameValue>);
+                frames[mode] = {
+                    canvasX: builtin.canvasX ?? existing.canvasX ?? 0,
+                    canvasY: builtin.canvasY ?? existing.canvasY ?? 0,
+                    centerOffsetX: builtin.centerOffsetX ?? existing.centerOffsetX ?? 0,
+                    centerOffsetY: builtin.centerOffsetY ?? existing.centerOffsetY ?? 0,
+                    fontScale: builtin.fontScale ?? existing.fontScale ?? 1,
+                    effectScaleX: builtin.effectScaleX ?? existing.effectScaleX ?? 1,
+                    effectScaleY: builtin.effectScaleY ?? existing.effectScaleY ?? 1,
+                };
+            }
+            localStorage.setItem(REAR_LYRICS_FRAME_STORAGE_KEY, JSON.stringify(frames));
+            localStorage.setItem(REAR_ALL_MIGRATION_V3_KEY, '1');
         }
         return frames;
     } catch {

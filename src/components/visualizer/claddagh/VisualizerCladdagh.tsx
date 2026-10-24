@@ -4,6 +4,7 @@ import React, { useMemo, useState, useEffect, useRef, useCallback } from 'react'
 import { useMotionValue, animate, useSpring, motion } from 'framer-motion';
 import { DEFAULT_CLADDAGH_TUNING } from '../../../types';
 import { buildLineGraphemeTimeline } from '../../../utils/lyrics/graphemeTiming';
+import { resolveRearRenderSurface } from '../../../utils/rearRenderSurface';
 import { resolveThemeFontStack, resolveThemeFontWeight } from '../../../utils/fontStacks';
 import { type VisualizerSharedProps } from '../definition';
 import { useVisualizerRuntime } from '../runtime';
@@ -40,14 +41,13 @@ const VisualizerCladdagh: React.FC<VisualizerSharedProps> = (props) => {
 
     const centerNormalTiltDeg = 90 - claddaghTuning.ellipseTiltDeg;
 
-    const isRawScaleRef = useRef(false);
     const glowIntensityRef = useRef(0);
     const normalizePower = useCallback((power: number) => {
+        // audioPower / audioBands 都是 0..255（usePlaybackVisualizerBridge 的 process 返回 *255）。
+        // 直接 /255 归一化。之前的 isRawScaleRef 自适应在 pow 压缩后大量值 <1.0 时误判，
+        // 导致 power 在「原值」与「/255」两种单位间来回跳，出现频闪。
         if (!Number.isFinite(power)) return 0;
-        if (power > 1.0) {
-            isRawScaleRef.current = true;
-        }
-        return Math.max(0, Math.min(1, isRawScaleRef.current ? power / 255 : power));
+        return Math.max(0, Math.min(1, power / 255));
     }, []);
 
     const { activeLine, upcomingLine, recentCompletedLine, nextLines } = useVisualizerRuntime({
@@ -170,8 +170,13 @@ const VisualizerCladdagh: React.FC<VisualizerSharedProps> = (props) => {
         return () => observer.disconnect();
     }, []);
 
+    // 背屏可读性适配（docs/背屏摄像头规避基准.md）：背屏渲染面 587 宽，Rx 默认 258，
+    // 圈直径 516 远超可视区 347，明显太大。背屏把圈缩到可视区能容纳（×0.62 ≈ 160）。
+    const isRearPage = resolveRearRenderSurface(props.rearLayout);
     // Radial configuration (increased to prevent long sentence overlaps)
-    const Rx = (dimensions.width > 0 ? Math.min(dimensions.width * 0.44, 560) : 360) * claddaghTuning.radiusScale;
+    const Rx = (dimensions.width > 0 ? Math.min(dimensions.width * 0.44, 560) : 360)
+        * claddaghTuning.radiusScale
+        * (isRearPage ? 0.48 : 1);
     const Ry = Rx > 0 ? Rx * 0.707 : 254; // 45-degree angle projection ratio
     const focusSpacingScale = (1 + claddaghTuning.focusScaleRatio) / (1 + DEFAULT_CLADDAGH_TUNING.focusScaleRatio);
     const activeTextSpacingScale = focusSpacingScale;

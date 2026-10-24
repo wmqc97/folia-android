@@ -43,6 +43,8 @@ export interface LumiereSceneBuildContext {
     audioAt: (time: number) => LumiereAudioFrame;
     showText: boolean;
     quality: LumiereSceneQuality;
+    /** 背屏可读性适配：左内边距额外值（高度单位），把歌词推进可读区。 */
+    safeLeftInset?: number;
 }
 
 /** 模糊低于这个强度就摘掉 filter：一个挂着不用的 filter 也要多一次整屏离屏渲染。 */
@@ -85,6 +87,7 @@ export const buildLumiereSceneEntry = (
         tuning: context.tuning,
         sprites: context.sprites,
         audioAt: context.audioAt,
+        safeLeftInset: context.safeLeftInset,
     });
     unit.scene.text.visible = context.showText;
     applyLumiereSceneQuality(unit.scene, context.quality);

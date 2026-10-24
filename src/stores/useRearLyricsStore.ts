@@ -50,7 +50,8 @@ export interface RearLyricsState {
     messageKind: RearLyricsMessageKind;
     refresh: () => Promise<void>;
     start: () => Promise<void>;
-    stop: () => Promise<void>;
+    /** silent = 自动退出时不弹 toast（停止播放 10 秒的自动收尾）。 */
+    stop: (silent?: boolean) => Promise<void>;
     requestPrivilege: () => Promise<void>;
     openShizukuSettings: () => Promise<void>;
     /** 原生 rearState 事件入口，由 installRearLyricsStoreBridge 调用。 */
@@ -133,7 +134,7 @@ export const useRearLyricsStore = create<RearLyricsState>((set, get) => ({
         }
     },
 
-    stop: async () => {
+    stop: async (silent = false) => {
         if (get().busy) {
             return;
         }
@@ -143,7 +144,9 @@ export const useRearLyricsStore = create<RearLyricsState>((set, get) => ({
         set({ busy: true, message: null });
         try {
             await RearProjection.stopProjection();
-            set({ projecting: false, active: false, message: '背屏歌词已退出', messageKind: 'info' });
+            set(silent
+                ? { projecting: false, active: false, message: null }
+                : { projecting: false, active: false, message: '背屏歌词已退出', messageKind: 'info' });
         } catch (error) {
             set({ message: `退出失败：${describeError(error)}`, messageKind: 'error' });
         } finally {

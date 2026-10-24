@@ -350,3 +350,38 @@
 
 /* 降级状态的来源同 wall.css 里海报的那条规则（useMotionSettingsStore → <html data-reduce-motion>）。 */
 :root[data-reduce-motion~='lattice'] .lattice-poster-lights-out { transition: none; }
+
+
+/* ---------- 性能优先（.is-performance，由 useLatticePerformanceModeStore.enabled 挂上，默认开） ---------- */
+/*
+ * 只留翻牌 / 入场波次 / 缝的展开收起，其余装饰全部让路。关掉的正好是两类最贵的：
+ *   1. 整屏一层的：::after 的噪点（feTurbulence + mix-blend-mode: soft-light）是逐帧的整屏重混合，
+ *      暗角 ::before 与根节点的两层光晕同样是整屏渐变 —— 墙一动就要跟着重画一遍；
+ *   2. 每张卡一层的：海报的 box-shadow / filter 与它们的过渡，展开卡还有 0 42px 110px 的大面积模糊。
+ * tint / lights-out 两张叠层在组件里直接不渲染（LatticePoster / BravaisTile），这里只管 CSS 自己加的。
+ * 焦点环是键盘可达性，不能砍，但收成一圈描边，不再叠三条阴影。
+ */
+.lattice-root.is-performance::after,
+.lattice-root.is-performance.has-vignette::before { display: none; }
+
+.lattice-root.is-performance { background: var(--bg-color, #070707); }
+
+.lattice-root.is-performance .lattice-poster {
+    box-shadow: none;
+    transition: none;
+}
+
+.lattice-root.is-performance .lattice-poster:hover { filter: none; }
+.lattice-root.is-performance .lattice-poster::after { display: none; }
+
+.lattice-root.is-performance .lattice-poster.is-focused,
+.lattice-root.is-performance .lattice-poster:focus-visible {
+    box-shadow: 0 0 0 2px var(--text-primary, #fff);
+}
+
+/* 展开卡的那一大块模糊收成一小圈：它在展开动画期间每帧都要重画一遍。 */
+.lattice-root.is-performance .lattice-poster.is-expanded {
+    --lattice-poster-elevation: 0 10px 24px var(--lattice-expanded-shadow);
+}
+
+.lattice-root.is-performance .lattice-poster.is-current::before { transition: none; }

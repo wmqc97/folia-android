@@ -10,6 +10,9 @@ import ObsNowPlayingSourceApp from './components/obs/ObsNowPlayingSourceApp';
 import ObsPlayerCapSourceApp from './components/obs/ObsPlayerCapSourceApp';
 import RearLyricsApp from './components/rear/RearLyricsApp';
 import { initializeLocalCoverRuntime } from './services/localCoverRuntime';
+// 安卓原生 fetch 桥：跨域请求经 FoliaBridge（OkHttp + 系统 CookieManager）发出。
+// 第三方接口没有 CORS 头，WebView 里直接 fetch 会被拦；登录态也因此和浏览器级 Cookie 罐共用。
+import { installNativeFetchShim } from './audioNative/fetchShim';
 import { initFoliumClients } from './mods/folium/clientLoader';
 import { restoreSavedFoliumSelections } from './mods/folium/missingEntries';
 import { installFoliumCommandPaletteSync } from './mods/folium/commandPaletteSync';
@@ -104,8 +107,13 @@ void Promise.allSettled([bootFolium(), bootNavidrome()])
         if (navidrome.status === 'rejected') console.warn('[Navidrome] Server preset boot failed:', navidrome.reason);
     })
     .finally(() => {
-        void initializeLocalCoverRuntime().finally(renderApp);
+        // 封面 SW 的注册不再阻塞首屏：注册是异步的，等它 ready 只会让冷启动多等（APK 里没有 PWA worker）。
+        initializeLocalCoverRuntime();
+        renderApp();
     });
 
 // 安卓端：启动时恢复波点/QQ 的登录态（后端会话已落盘，前端账号状态需要同步）。
 void restoreProviderAuth();
+
+// 原生 fetch 桥要在任何音源请求之前装好（音源、扫码、封面都走它）。
+installNativeFetchShim();

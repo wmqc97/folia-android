@@ -4,6 +4,9 @@ import {
     isFoliaExtensionBridgeConfigured,
     requestFoliaExtension,
 } from '../foliaExtensionBridge';
+// 原生协议后端（上游 0.7.21）：安卓 APK 走 FoliaBridge（OkHttp + CookieManager）。
+import { handleQqEndpoint } from '../../audioNative/qq';
+import { isNativeBridgeAvailable } from '../../audioNative/core';
 
 // src/services/onlineMusic/qqTransport.ts
 
@@ -195,6 +198,8 @@ export const getQqRemoteApiBase = (): string | null => (getElectronQqPortReader(
 export const getQqTransportAvailability = () => {
     if (getElectronQqPortReader()) return { configured: true } as const;
     if (hasQqExtensionSession()) return { configured: true } as const;
+    // 安卓 APK：原生协议层自带签名与 Cookie 罐，不依赖远端 API 服务。
+    if (isNativeBridgeAvailable()) return { configured: true } as const;
     return getWebApiBase()
         ? { configured: true } as const
         : { configured: false, reason: 'not-configured' as const };
@@ -234,11 +239,30 @@ const endpointFor = (operation: QqOperation, params: QqParams): { path: string; 
     return { path: ENDPOINTS[operation], query };
 };
 
+/** 原生协议后端的一次 QQ 请求：路径 + 参数交给 audioNative/qq.ts，签名与 Cookie 都在那一层。 */
+const requestQqNative = async <T = unknown>(operation: QqOperation, path: string, query: QqParams): Promise<T> => {
+    const params: Record<string, string> = {};
+    Object.entries(query).forEach(([key, value]) => {
+        if (value !== undefined) params[key] = String(value);
+    });
+    const answer = await handleQqEndpoint(operation, path, params, undefined, getWebSessionCookie());
+    const body = await answer.json();
+    if (!answer.ok) {
+        throw new OnlineProviderError('network', `QQ native request failed: ${answer.status}`, 'qq', body);
+    }
+    persistConfirmedSession(operation, body);
+    return body as T;
+};
+
 // Routes one provider request through the embedded Electron server or the configured Web base URL.
 export const requestQq = async <T = unknown>(operation: QqOperation, params: QqParams = {}): Promise<T> => {
-    const base = await resolveApiBase();
-
     const endpoint = endpointFor(operation, params);
+    // 安卓 APK：既没有内嵌后端也没有远端 API base —— 直接走原生协议层。
+    // 必须先判，因为 resolveApiBase() 在「没配 base」时是抛错而不是返回空串。
+    if (isNativeBridgeAvailable() && !getElectronQqPortReader() && !getWebApiBase()) {
+        return await requestQqNative<T>(operation, endpoint.path, endpoint.query);
+    }
+    const base = await resolveApiBase();
     if (isFoliaExtensionBridgeConfigured(base)) {
         try {
             const body = await requestFoliaExtension<any>({

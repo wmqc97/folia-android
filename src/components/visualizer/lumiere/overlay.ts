@@ -21,6 +21,8 @@ export interface LumiereOverlayOptions {
     theme: Theme;
     /** 主题色占比（同场景的调色盘），不给按 0。 */
     themeColorMix?: number;
+    /** 背屏可读性适配：左内边距额外值（逻辑像素），把画框推进可读区。 */
+    safeLeftInset?: number;
 }
 
 /** 画框容器（静态，只建一次；尺寸或主题变了就重建）。 */
@@ -32,12 +34,13 @@ export const buildLumiereOverlay = (pixi: PixiModule, options: LumiereOverlayOpt
     const unit = Math.min(width, height);
     // 边距留足：画面边缘可能被运镜推近、后处理的镜头畸变往外推（歌词窗口按同一个边距避开画框）。
     const { padX, padY } = frameInsets(width, height);
+    const padXLeft = padX + (options.safeLeftInset ?? 0) * height;
     const arm = unit * (0.045 + LUMIERE_NEUTRAL_OFFSET);
     const line = Math.max(1.2, unit / 600);
     const alpha = 0.5;
 
     // 四角括号。
-    for (const [x, y, sx, sy] of [[padX, padY, 1, 1], [width - padX, padY, -1, 1], [width - padX, height - padY, -1, -1], [padX, height - padY, 1, -1]] as const) {
+    for (const [x, y, sx, sy] of [[padXLeft, padY, 1, 1], [width - padX, padY, -1, 1], [width - padX, height - padY, -1, -1], [padXLeft, height - padY, 1, -1]] as const) {
         g.moveTo(x, y + sy * arm).lineTo(x, y).lineTo(x + sx * arm, y).stroke({ color, width: line, alpha });
     }
 

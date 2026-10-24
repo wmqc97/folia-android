@@ -73,6 +73,13 @@ export interface VisualizerSharedProps {
      */
     rearRenderOffsetX?: number;
     rearRenderOffsetY?: number;
+    /**
+     * 是否按背屏版式渲染（三行歌词窗口、右侧可读区、强制横排、圈径收缩等）。
+     *
+     * <p>背屏舞台和「背屏歌词样式」预览传 true；主屏 / OBS 不传 = false，按主屏版式渲染。
+     * 不能靠 window 全局标记推断：RearLyricsApp 也会被打进主屏 bundle。
+     */
+    rearLayout?: boolean;
     onBack?: () => void;
     isPanelOpen?: boolean;
     alwaysShowBackButton?: boolean;

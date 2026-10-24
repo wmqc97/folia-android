@@ -17,6 +17,8 @@ import { useBravaisArtistTone } from './bravaisArtistTone';
 import { resolveBravaisTileForm } from './bravaisTileForm';
 import './bravaisTileKinds.css';
 import { getWaveStagger, WALL_WAVE_IN_MS, WALL_WAVE_LIFT, WALL_WAVE_OUT_MS } from './bravaisWallWave';
+import { useLatticeSettingsStore } from '../../../stores/useLatticeSettingsStore';
+import { useLatticePerformanceModeStore } from '../../../stores/useLatticePerformanceModeStore';
 
 // src/library/suites/bravais/BravaisTile.tsx
 // 墙上的一张磁贴。分两层（给 B6b③ 的底板留结构）：外框（.bravais-tile）只管位置与尺寸，永远不转；内容层
@@ -247,10 +249,13 @@ function BravaisTile({
         outAnimationRef.current?.cancel();
     }, []);
 
+    // 性能优先：封面按世界尺寸封顶（512），高 DPR 屏不再取大一档的图；聚焦卡不压（它是主角）。
+    const performanceMode = useLatticePerformanceModeStore(state => state.enabled);
+    const lightsOn = useLatticeSettingsStore(state => state.latticeLightsOn);
     // 透着的磁贴不画封面（2026-10-09 起连封面底条也不画），不取图；聚焦卡与普通磁贴按自己的尺寸取图。
     const coverUrl = useWallPosterArtwork(
         face.seeThrough ? undefined : display?.coverUrl,
-        Math.max(rect.width, rect.height) * pixelScale,
+        performanceMode && !expanded ? Math.min(Math.max(rect.width, rect.height) * pixelScale, 512) : Math.max(rect.width, rect.height) * pixelScale,
     );
     const isTrack = display?.kind === 'track';
     const isWindow = face.kind === 'window';
@@ -326,8 +331,8 @@ function BravaisTile({
                         )}
                         <span className="lattice-poster-shade" />
                         {/* 实测反馈 1：熄灯层（wall.css；全透明档的窗与聚焦卡等豁免在 bravais.css）。 */}
-                        <span className="lattice-poster-lights-out" />
-                        {!face.seeThrough && <span className="lattice-poster-tint" />}
+                        {(!performanceMode || !lightsOn) && <span className="lattice-poster-lights-out" />}
+                        {!performanceMode && !face.seeThrough && <span className="lattice-poster-tint" />}
                         <BravaisTileBadge item={display} current={isCurrent} />
                         {(display.hideable || display.selected) && (
                             <BravaisTileMarks

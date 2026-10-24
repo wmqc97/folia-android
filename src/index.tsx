@@ -9,6 +9,7 @@ import { installFrameTimingDiagnostics } from './utils/frameTimingDiagnostics';
 import { installAudioNativeCore } from './services/audioNativeInstaller';
 import { installAndroidPhoneFitPreference } from './services/androidPhoneLayout';
 import { installKeepScreenOnPreference } from './services/androidKeepScreenOn';
+import { installAndroidPixelRatioCap } from './utils/androidPixelRatioCap';
 import { applySettingsDefaultsMigration } from './services/settingsDefaultsMigration';
 import { installRearLyricsStoreBridge } from './stores/useRearLyricsStore';
 import '@fontsource/noto-sans-sc/400.css';
@@ -35,6 +36,8 @@ installFrameTimingDiagnostics();
 // only even then: a packaged build has nothing to do with the answer, so it should not pay the
 // observer or the rows it retains.
 // if (import.meta.env.DEV) installCoverSizeAudit();
+// 安卓画布 DPR 上限：先于任何 canvas / Pixi 初始化。
+installAndroidPixelRatioCap();
 installGlobalVisualizerFrameRateLimiter();
 installAndroidPhoneFitPreference();
 // 屏幕常亮：启动时套用保存的开关状态（安卓走原生窗口标志）。

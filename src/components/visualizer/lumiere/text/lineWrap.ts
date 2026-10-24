@@ -38,12 +38,28 @@ const FRAME_CLEARANCE_TOP = 0.035;
  */
 const SUBTITLE_CLEARANCE = 0.2;
 
-export const frameBand = (width: number, height: number): FrameBand => {
+/**
+ * 背屏可读性适配（docs/背屏摄像头规避基准.md）：
+ * 背屏摄像头占屏幕左 98 CSS（277 物理），歌词只能放 98..347 CSS（屏幕坐标）。
+ * 背屏渲染面 = 屏幕 + overscan 120（宽 587、高 452），所以可读区在渲染面上是
+ * 左 (120+98)、右 (120+347)。传给 frameBand 的 left/right 是「渲染面坐标 / height」
+ * 的高度单位值，由 scene.ts 按 width/height 现算。
+ */
+export interface FrameBandOverride {
+    /** band 左缘（渲染面坐标 / height，高度单位）。 */
+    left?: number;
+    /** band 右缘（渲染面坐标 / height，高度单位）。 */
+    right?: number;
+}
+
+export const frameBand = (width: number, height: number, override?: FrameBandOverride): FrameBand => {
     const { padX, padY } = frameInsets(width, height);
-    const left = padX / height + FRAME_CLEARANCE_X;
+    const baseLeft = padX / height + FRAME_CLEARANCE_X;
+    const left = override?.left ?? baseLeft;
+    const right = override?.right ?? (width / height - baseLeft);
     return {
         left,
-        right: width / height - left,
+        right,
         top: padY / height + FRAME_CLEARANCE_TOP,
         bottom: Math.max(padY / height + FRAME_CLEARANCE_TOP + 0.2, 1 - SUBTITLE_CLEARANCE),
     };

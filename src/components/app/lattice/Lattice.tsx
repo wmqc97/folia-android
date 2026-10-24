@@ -10,6 +10,7 @@ import WallBackButton from '../../wall/WallBackButton';
 import { buildLatticeTiles, type LatticeTile } from './latticeModel';
 import { useStableCallbacks } from '../../../hooks/useStableCallbacks';
 import { useLatticeSettingsStore } from '../../../stores/useLatticeSettingsStore';
+import { useLatticePerformanceModeStore } from '../../../stores/useLatticePerformanceModeStore';
 import { countRender } from '../../../dev/renderCount';
 import '../../wall/wall.css';
 import './Lattice.css';
@@ -66,7 +67,7 @@ export default function Lattice({
 }: LatticeProps) {
     countRender('Lattice');
     const { t } = useTranslation();
-    const performanceMode = useLatticeSettingsStore(state => state.latticePerformanceMode);
+    const performanceMode = useLatticePerformanceModeStore(state => state.enabled);
     const vignette = useLatticeSettingsStore(state => state.latticeVignette);
     const lightsOn = useLatticeSettingsStore(state => state.latticeLightsOn);
     const posterTintEnabled = useLatticeSettingsStore(state => state.latticePosterTintEnabled);

@@ -1259,3 +1259,25 @@ export interface FoliumClientModule {
     /** `activate(folium)`; may return a disposer, which runs before the host removes the mod's registrations. */
     default: (folium: FoliumClientApi) => void | FoliumDisposer | Promise<void | FoliumDisposer>;
 }
+
+/** EXPERIMENTAL (`remote.actions`). Append-only buttons; native remote controls stay unchanged. */
+export interface FoliumRemoteActionDef {
+    /** Local action id; the host adds the owning mod and registration prefix. */
+    id: string;
+    /** Localized button label and accessible name. */
+    label: FoliumLabel;
+    /** Lucide icon name in kebab-case. */
+    icon: string;
+    /** Prevents invocation while true. */
+    disabled?: boolean;
+    /** Toggle state exposed through aria-pressed. */
+    pressed?: boolean;
+    /** Optional nonnegative finite count. */
+    count?: number;
+    /** Host-defined visual emphasis. */
+    tone?: 'normal' | 'alert';
+    /** `track` (default) expires when the displayed song changes; `session` survives a song change. */
+    scope?: 'track' | 'session';
+    /** Runs in the main window through the host's remote bridge. */
+    run(): void | Promise<void>;
+}

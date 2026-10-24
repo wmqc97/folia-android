@@ -212,10 +212,11 @@ const VisualizerSubtitleOverlay: React.FC<VisualizerSubtitleOverlayProps> = ({
                                         key={index}
                                         className={getUpcomingLyricsClassName(subtitleUpcomingLyricsBlur)}
                                         style={{
-                                            // 下一句压暗：alpha 走 colorWithAlpha 而不是 CSS opacity，
-                                            // 这样外层 motion.div 的字幕整体不透明度（subtitleOverlayOpacity）
-                                            // 仍然只作用于整组字幕，不会被这一行单独再乘一次。
-                                            color: colorWithAlpha(theme.secondaryColor, UPCOMING_LYRICS_OPACITY),
+                                            // 下一句压暗只用于背屏（可读区窄，实心的下一句会打散主歌词轮廓）；
+                                            // 主屏保持原版颜色，主屏字幕观感与上游一致。
+                                            color: isRearLyricsSurface
+                                                ? colorWithAlpha(theme.secondaryColor, UPCOMING_LYRICS_OPACITY)
+                                                : theme.secondaryColor,
                                             fontSize: scaleFontSize(upcomingFontSize),
                                             fontWeight: resolveThemeFontWeight(subtitleTheme ?? theme, 400),
                                             textShadow,

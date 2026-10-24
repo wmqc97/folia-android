@@ -126,10 +126,16 @@ public class FoliaCorePlugin extends Plugin {
     }
 
     static void emitMediaAction(String action) {
+        emitMediaAction(action, -1L);
+    }
+
+    /** positionMs < 0 表示「无位置」，只有 seek 需要带上目标位置。 */
+    static void emitMediaAction(String action, long positionMs) {
         FoliaCorePlugin plugin = instance;
         if (plugin == null) return;
         JSObject payload = new JSObject();
         payload.put("action", action);
+        if (positionMs >= 0) payload.put("position", positionMs);
         plugin.getActivity().runOnUiThread(() -> plugin.notifyListeners("mediaAction", payload));
     }
 
@@ -509,6 +515,10 @@ public class FoliaCorePlugin extends Plugin {
         result.put("at", playbackArtworkAt);
         result.put("applied", playbackArtworkApplied);
         result.put("power", FoliaPlaybackService.getPowerDiagnostic());
+        // 前台服务心跳：进程被系统收掉时，last 停在什么时候就是现场。
+        result.put("serviceRunning", FoliaPlaybackService.isRunning());
+        result.put("serviceHeartbeat", CrashDiagnostics.readServiceHeartbeat(getContext()));
+        result.put("previousServiceHeartbeat", CrashDiagnostics.readPreviousServiceHeartbeat(getContext()));
         call.resolve(result);
     }
 

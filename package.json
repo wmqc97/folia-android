@@ -8,7 +8,7 @@
     "email": "chthollyphile@users.noreply.github.com"
   },
   "private": true,
-  "version": "0.7.16",
+  "version": "0.7.21",
   "license": "AGPL-3.0",
   "type": "module",
   "main": "electron/main.cjs",
@@ -18,6 +18,7 @@
   "scripts": {
     "dev": "vite",
     "dev:probe": "vite --open /dev-probe.html",
+    "postinstall": "node scripts/patch-capacitor-systembars.mjs",
     "build": "npm run build:vercel-api && vite build",
     "build:vercel-api": "tsc -p api-ts/tsconfig.json",
     "preview": "vite preview",
@@ -223,6 +224,7 @@
     "bodian-music-api": "0.1.2",
     "buffer": "^6.0.3",
     "busboy": "^1.6.0",
+    "crypto-es": "^3.1.3",
     "electron-store": "^11.0.2",
     "electron-updater": "^6.8.9",
     "fflate": "^0.8.3",

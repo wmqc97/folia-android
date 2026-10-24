@@ -61,6 +61,8 @@ export interface LumiereRuntimeOptions {
     showText: boolean;
     paused: boolean;
     metadata: LumiereSongMetadata;
+    /** 背屏可读性适配：左内边距额外值（高度单位），把歌词推进可读区。详见 lineWrap.REAR_SAFE_LEFT_INSET。 */
+    safeLeftInset?: number;
     signal?: AbortSignal;
 }
 
@@ -230,6 +232,7 @@ export class LumierePixiRuntime {
             height: this.height,
             theme: this.options.song.theme,
             themeColorMix: this.options.tuning.themeColorMix,
+            safeLeftInset: this.options.safeLeftInset,
         }));
     }
 
@@ -245,6 +248,7 @@ export class LumierePixiRuntime {
             audioAt: this.audioAt,
             showText: this.options.showText,
             quality: this.quality,
+            safeLeftInset: this.options.safeLeftInset,
         }, index);
     }
 

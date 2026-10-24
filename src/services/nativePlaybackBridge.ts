@@ -14,7 +14,7 @@ type NativePlaybackPlugin = {
   clearPlaybackState: () => Promise<unknown>;
   addListener: (
     eventName: string,
-    listener: (event: { action?: string }) => void,
+    listener: (event: { action?: string; position?: number }) => void,
   ) => Promise<{ remove: () => Promise<void> }> | { remove: () => Promise<void> };
 };
 
@@ -135,10 +135,10 @@ export const installNativePlaybackBridge = async (
   installed = true;
 
   try {
-    await plugin.addListener('mediaAction', ({ action }) => {
+    await plugin.addListener('mediaAction', ({ action, position }) => {
       if (!action) return;
       window.dispatchEvent(new CustomEvent('folia-native-media-action', {
-        detail: { action },
+        detail: { action, position },
       }));
     });
   } catch (error) {
@@ -151,6 +151,6 @@ export const installNativePlaybackBridge = async (
     if (selectDisplayPlayerState(state) === PlayerState.PLAYING) {
       pushProgress(plugin, state);
     }
-  }, 1000);
+  }, 5000);
   pushState(plugin);
 };

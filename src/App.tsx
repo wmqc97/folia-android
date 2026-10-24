@@ -107,6 +107,7 @@ import { useObsBrowserSourcePublisher } from './hooks/useObsBrowserSourcePublish
 import { useRearLyricsTransport } from './hooks/useRearLyricsTransport';
 import { useRearLyricsHostActions } from './hooks/useRearLyricsHostActions';
 import { useRearLyricsAutoStart } from './hooks/useRearLyricsAutoStart';
+import { useRearLyricsAutoStop } from './hooks/useRearLyricsAutoStop';
 import { hasVisualizerMode } from './components/visualizer/registry';
 import { useRearLyricsStore } from './stores/useRearLyricsStore';
 import { useRearLyricsVisualSettingsStore } from './stores/useRearLyricsVisualSettingsStore';
@@ -1444,6 +1445,8 @@ export default function App() {
      */
     const seekDuringTransitionRef = useRef<(time: number) => boolean>(() => false);
     const pauseDuringTransitionRef = useRef<() => boolean>(() => false);
+    /** 系统媒体通知拖进度条的目标位置，等 seekMainAudio 定义后再接上。 */
+    const mediaSessionSeekRef = useRef<(time: number) => void>(() => {});
     /** Shared by every entry point that can seek while a blend is in flight. */
     const seekDuringTransition = useCallback((time: number) => seekDuringTransitionRef.current(time), []);
     const handlePauseDuringTransition = useCallback(() => pauseDuringTransitionRef.current(), []);
@@ -1503,6 +1506,7 @@ export default function App() {
         mediaSessionPauseRef,
         mediaSessionPrevRef,
         mediaSessionNextRef,
+        mediaSessionSeekRef,
         isNowPlayingControlDisabledRef,
     });
 
@@ -1704,6 +1708,8 @@ export default function App() {
     const rearLyricsTransport = useRearLyricsTransport();
     // 「播放歌曲就自动开启背屏歌词」的触发器；开关本身在「设置 · 背屏歌词」卡片里。
     useRearLyricsAutoStart();
+    // 停止播放超过 10 秒自动结束投屏，避免背屏一直停在歌词页。
+    useRearLyricsAutoStop();
     const {
         obsBrowserSourceStatus,
         isObsBrowserSourceRendering,
@@ -2111,6 +2117,7 @@ export default function App() {
             void publishStagePlayerPlaybackUpdate();
         }
     }, [publishStagePlayerPlaybackUpdate]);
+    mediaSessionSeekRef.current = seekMainAudio;
 
     const handleMonetLyricLineSeek = useCallback((lyricTimeSec: number) => {
         if (isNowPlayingControlDisabled) {

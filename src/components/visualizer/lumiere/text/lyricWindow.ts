@@ -87,6 +87,10 @@ export interface LyricWindowOptions {
     letterSpacing?: number;
     /** 关键字着色的匹配器（主题 wordColors，prepareLumiereKeywords）；不给或为空则不着色。 */
     keywords?: readonly WordColorMatcher[];
+    /** 背屏可读性适配：覆盖 frameBand 的 left/right（渲染面坐标 / height）。 */
+    bandOverride?: import('./lineWrap').FrameBandOverride;
+    /** 背屏可读性适配：强制横排（竖排显示不下）。 */
+    forceHorizontal?: boolean;
 }
 
 export interface LyricWindowFrame {
@@ -137,7 +141,9 @@ export const createLyricWindow = (pixi: PixiModule, options: LyricWindowOptions)
     const nextAlpha = options.neighbors >= 2 ? 0.95 : 0;
     // 长度上限：横排用画框内的整个宽度（纵横交错留一成给四周的行），竖排用画框内的整个高度（避开底部字幕）。
     // 文字区只决定中心，不再限制行长。
-    const band = frameBand(options.width, height);
+    const band = frameBand(options.width, height, options.bandOverride);
+    // 背屏强制横排：竖排在 249 CSS 宽的可读区里显示不下。
+    const forceHorizontal = options.forceHorizontal ?? false;
     const columnCap = (band.bottom - band.top) * height;
     const maxWidthOf = (kind: WindowTypography) => (band.right - band.left) * height * (kind === 'crossed' ? 0.9 : 1);
     const measurer = createTextMeasurer(options.font, options.weight, options.letterSpacing ?? 0);

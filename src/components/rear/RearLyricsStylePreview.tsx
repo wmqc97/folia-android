@@ -209,6 +209,9 @@ const RearLyricsStylePreview: React.FC<RearLyricsStylePreviewProps> = ({
                     >
                     <VisualizerRenderer
                         mode={visualizerMode}
+                        // 预览画的就是背屏，必须显式按背屏版式渲染：不能依赖 window 全局标记，
+                        // 那个标记只在真背屏页成立（见 utils/rearRenderSurface.ts）。
+                        rearLayout
                         currentTime={currentTime}
                         currentLineIndex={currentLineIndex}
                         lines={placeholder.lines}

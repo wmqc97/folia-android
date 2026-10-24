@@ -8,6 +8,8 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
+import android.view.View;
+import android.view.Window;
 import android.view.WindowManager;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
@@ -74,9 +76,19 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        // 崩溃记录器：装上未捕获异常钩子，并把上一轮的服务心跳归档到 previous 槽位。
+        // 之前一直没人调用它，所以真机闪退在应用侧不留任何痕迹，只能靠 logcat。
+        CrashDiagnostics.install(this);
         // 必须在 super.onCreate 之前：那一步就会创建 WebView，之后再动缓存目录不安全。
         WebViewCacheReset.resetIfAppUpdated(this);
         registerPlugin(FoliaCorePlugin.class);
+        // 原生协议网络层：音源请求与扫码登录走 OkHttp + 系统 CookieManager（audioNative/*.ts 依赖它）。
+        // 用 try/catch 兜住：插件注册失败（例如运行期缺 okhttp 类）只该让音源降级，不该整个 App 起不来。
+        try {
+            registerPlugin(FoliaBridgePlugin.class);
+        } catch (Throwable t) {
+            Log.e(TAG, "FoliaBridge 插件注册失败，原生音源降级: " + t);
+        }
         // 背屏投屏桥：前端用 RearProjection.startProjection() / stopProjection() 控制背屏歌词页。
         registerPlugin(RearProjectionPlugin.class);
         super.onCreate(savedInstanceState);
@@ -87,6 +99,19 @@ public class MainActivity extends BridgeActivity {
         configureWebView();
         applyImmersiveFullscreen();
         scheduleImmersiveReapply();
+        /*
+         * API 30 以下：系统栏被临时划出后会自己弹回来，只有「可见性变化」这个回调能立刻压回去
+         * （上游 v0.7.21 的 setOnSystemUiVisibilityChangeListener）。
+         * 30+ 不用装 —— 那边没有设 SYSTEM_UI_FLAG_FULLSCREEN，这个判据永远成立，
+         * 会在 hide() 触发的可见性回调里自激重入。
+         */
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            getWindow().getDecorView().setOnSystemUiVisibilityChangeListener(visibility -> {
+                if ((visibility & View.SYSTEM_UI_FLAG_FULLSCREEN) == 0) {
+                    applyImmersiveFullscreen();
+                }
+            });
+        }
         logNativeRuntimeInfo();
         // 本地音乐导入桥必须在 WebView 加载页面之前注册。
         // 注意：WebView 不是字段，要从 Capacitor 的 Bridge 上取（与 configureWebView 一致）。
@@ -106,25 +131,13 @@ public class MainActivity extends BridgeActivity {
             requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS}, 2002);
         }
 
-        // 前台服务：常驻通知 + 保活 + 媒体会话，后台播放不中断。
-        Bridge mediaBridge = getBridge();
-        WebView mediaWebView = mediaBridge == null ? null : mediaBridge.getWebView();
-        if (mediaWebView != null) {
-            KeepAliveService.setSharedWebView(mediaWebView);
-            KeepAliveService.attachWebViewNow(mediaWebView);
-        }
-        // 前台服务启动失败（比如后台启动被系统限制）不能让整个进程跟着崩，
-        // 这里兜一层：保活失败最多是退化成没有常驻通知，音频仍能继续播。
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                startForegroundService(new Intent(this, KeepAliveService.class));
-            } else {
-                startService(new Intent(this, KeepAliveService.class));
-            }
-        } catch (RuntimeException error) {
-            Log.w("FoliaMain", "启动保活服务失败，退回到无前台服务模式", error);
-        }
-
+        /*
+         * 前台服务只保留 FoliaPlaybackService（播放时由 FoliaCorePlugin 启动）。
+         * 之前这里还会再起一个 KeepAliveService，两个前台服务各自 startForeground，
+         * 系统通知栏就会出现两条「音乐播放中」——一条保活占位、一条媒体卡片。
+         * 播放保活现在由 FoliaPlaybackService 的 MediaSession + WakeLock 负责，
+         * 启动阶段 App 在前台，不需要额外的常驻通知。
+         */
         installBackToBackground();
     }
 
@@ -192,22 +205,83 @@ public class MainActivity extends BridgeActivity {
         }
     }
 
+    /** 系统栏设置的安全入口：个别 ROM 的 insets API 会抛异常，兜住不让它拖垮 Activity。 */
     private void applyImmersiveFullscreen() {
-        // 让内容真正铺满整屏（含状态栏与导航栏区域），而不是被系统栏挤出一圈边。
-        WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            WindowManager.LayoutParams attrs = getWindow().getAttributes();
-            attrs.layoutInDisplayCutoutMode =
-                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
-            getWindow().setAttributes(attrs);
+        try {
+            applyImmersiveFullscreenUnsafe();
+        } catch (Throwable t) {
+            Log.w(TAG, "沉浸式全屏设置失败（已忽略）: " + t);
         }
+    }
+
+    private void applyImmersiveFullscreenUnsafe() {
+        Window window = getWindow();
+        // 让内容真正铺满整屏（含状态栏与导航栏区域），而不是被系统栏挤出一圈边。
+        WindowCompat.setDecorFitsSystemWindows(window, false);
+        // 系统栏本身透明：下拉临时划出时不出现一条不透明色带（上游 v0.7.21 的做法）。
+        window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
+        window.setStatusBarColor(android.graphics.Color.TRANSPARENT);
+        window.setNavigationBarColor(android.graphics.Color.TRANSPARENT);
 
         WindowInsetsControllerCompat controller =
-                WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView());
+                WindowCompat.getInsetsController(window, window.getDecorView());
         controller.setSystemBarsBehavior(
                 WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
         controller.hide(WindowInsetsCompat.Type.systemBars());
+
+        /*
+         * 双通道（上游 v0.7.21 的写法）：Compat 那一套在部分 ROM 上会被系统栏重新插回来，
+         * 所以再直接走一次平台 API。
+         * - API 30+：setDecorFitsSystemWindows(false) + WindowInsetsController.hide(statusBars|navigationBars)；
+         * - API 30 以下：只能靠 IMMERSIVE_STICKY 那组 View flag，粘性全屏才会被系统自动恢复。
+         */
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            window.setDecorFitsSystemWindows(false);
+            android.view.WindowInsetsController platformController = window.getInsetsController();
+            if (platformController != null) {
+                platformController.hide(
+                        android.view.WindowInsets.Type.statusBars()
+                                | android.view.WindowInsets.Type.navigationBars());
+                platformController.setSystemBarsBehavior(
+                        android.view.WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+            }
+        } else {
+            window.getDecorView().setSystemUiVisibility(
+                    View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                            | View.SYSTEM_UI_FLAG_FULLSCREEN
+                            | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                            | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                            | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                            | View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
+        }
+
+        applyCutoutMode();
+    }
+
+    /**
+     * 挖孔 / 刘海屏：允许窗口画到挖孔区域里。
+     *
+     * API 30+ 用 ALWAYS —— 横屏时左右两条长边也可能有挖孔，SHORT_EDGES 只放短边，会留黑边；
+     * 低版本只有 SHORT_EDGES 可选。
+     */
+    /** 挖孔模式的安全入口：同 applyImmersiveFullscreen，ROM 差异不该变成闪退。 */
+    private void applyCutoutMode() {
+        try {
+            applyCutoutModeUnsafe();
+        } catch (Throwable t) {
+            Log.w(TAG, "挖孔模式设置失败（已忽略）: " + t);
+        }
+    }
+
+    private void applyCutoutModeUnsafe() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
+            return;
+        }
+        WindowManager.LayoutParams attributes = getWindow().getAttributes();
+        attributes.layoutInDisplayCutoutMode = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
+                ? WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+                : WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+        getWindow().setAttributes(attributes);
     }
 
     private void configureWebView() {
@@ -268,6 +342,13 @@ public class MainActivity extends BridgeActivity {
 
             boolean landscape = widthPx > heightPx;
             float zoom = landscape ? LAYOUT_ZOOM_LANDSCAPE : LAYOUT_ZOOM_PORTRAIT;
+
+            /*
+             * 原生侧再同步一次缩放百分比（上游 v0.7.21 用的就是 setInitialScale(75)）。
+             * 页面里如果自己重建了 <meta name=viewport>，上面那一路就失效了；
+             * 这里补的一层让 75% 不依赖页面是否还留着那个 meta。
+             */
+            webView.setInitialScale(Math.round(zoom * 100f));
 
             String viewportContent;
             if (zoom >= 0.999f) {

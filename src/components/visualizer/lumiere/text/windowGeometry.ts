@@ -64,9 +64,11 @@ export const createWindowGeometry = ({
     const fontH = heroPx / height;
     const driftScale = options.drift ?? 1;
     /** 第 c 行成为当前行时的排版（c = −1 即第一行之前，按第一行的排版）。 */
-    const typographyAt = (c: number): WindowTypography => (
-        options.typographyOf ? options.typographyOf(Math.max(0, Math.min(lineCount - 1, c))) : typography
-    );
+    const typographyAt = (c: number): WindowTypography => {
+        // 背屏强制横排：竖排在 249 CSS 宽的可读区里显示不下。
+        if (options.forceHorizontal) return 'horizontal';
+        return options.typographyOf ? options.typographyOf(Math.max(0, Math.min(lineCount - 1, c))) : typography;
+    };
 
     /**
      * 第 index 行在槽位缩放 scale、朝向 orient 下落定的样子：单行缩到 SINGLE_MIN_FIT 还放不下才折，

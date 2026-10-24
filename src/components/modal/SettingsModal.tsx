@@ -1,3 +1,4 @@
+import { formatByteSize as formatBytes } from '../../utils/formatByteSize';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import type { MotionValue } from 'framer-motion';
@@ -896,14 +897,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
         refreshServerProfile(config);
     };
 
-    const formatBytes = (bytes: number) => {
-        if (bytes === 0) return '0 B';
-        const k = 1024;
-        const sizes = ['B', 'KB', 'MB', 'GB'];
-        const i = Math.floor(Math.log(bytes) / Math.log(k));
-        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-    };
-
+    
     const fetchCacheUsage = async () => {
         const usage = await getCacheUsageByCategory();
         setCacheSizes({

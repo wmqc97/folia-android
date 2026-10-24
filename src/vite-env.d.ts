@@ -257,6 +257,7 @@ declare global {
     | { type: 'set-transparent-mode-enabled'; enabled: boolean }
     | { type: 'disable-transparent-mode' }
     | { type: 'cycle-player-chrome-visibility-mode' }
+    | { type: 'set-player-chrome-visibility-mode'; mode: 'always-hidden' | 'always-visible' | 'auto-hide' }
     | { type: 'open-export' }
     | { type: 'start-export'; preset: ElectronVideoExportPreset; startMode: ElectronVideoExportStartMode }
     | { type: 'stop-export' }
@@ -964,6 +965,8 @@ declare global {
       onRemoteControlWindowSettingsChanged: (callback: (settings: { hideTitlebar: boolean; clickThrough: boolean }) => void) => () => void;
       publishRemoteControlSnapshot: (snapshot: ElectronRemoteControlSnapshot) => Promise<boolean>;
       getRemoteControlSnapshot: () => Promise<ElectronRemoteControlSnapshot | null>;
+      getRemoteControlPointerInside: () => Promise<boolean | null>;
+      onRemoteControlPointerInside: (callback: (inside: boolean) => void) => () => void;
       sendRemoteControlCommand: (command: ElectronRemoteControlCommand) => Promise<boolean>;
       onRemoteControlCommand: (callback: (command: ElectronRemoteControlCommand) => void) => () => void;
       onRemoteControlSnapshot: (callback: (snapshot: ElectronRemoteControlSnapshot) => void) => () => void;
